@@ -2,10 +2,9 @@
 %%% @author iguberman
 %%% @copyright (C) 2017, Xaptum, Inc.
 %%% @doc
-%%%
+%%% gen_xaptum is a gen_server implementing xaptum communication protocol
 %%% @end
 %%% Created : 27. Mar 2017 12:01 AM
-%%% gen_xaptum is a gen_server implementing xaptum communication protocol
 %%%-------------------------------------------------------------------
 -module(gen_xaptum).
 -behaviour(gen_server).
