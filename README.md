@@ -1,12 +1,12 @@
 # xaptum_client
 
-`xaptum_client` is an Erlang application for establishing a connection to and
-transfering messages through the Xaptum Edge Network Fabric. It can be run
-standalone or as part of message handling application.
+`xaptum_client` is an Erlang application for connecting to and transfering
+messages through the Xaptum Edge Network Fabric. It can be run standalone or
+as part of message handling application.
 
 Implement (or specify via the config) the `message_handler` callback on the
 provided `gen_xaptum` behavior to handle incoming messages.  If not set, a
-default `dummy_message_handler` that simply prints the message to console
+default `dummy_message_handler` that simply prints the message to console is
 used.
 
 
@@ -15,20 +15,20 @@ used.
 The client can either be a device that sends messages to queues or a
 subscriber that reads messages from these queues and sends control messages
 back to the devices. Run the following `device` and `subscriber` examples
-concurrently. 
+concurrently.
 
 ### Device
 
 To test sending messages to preconfigured queues:
   
-1. Set the environment variables: `XAPTUM_DEV_GUID`, `XAPTUM_DEV_USER`, and
-`XAPTUM_DEV_TOKEN` with device credentials issued by Xaptum.  
+1. Set the environment variables `XAPTUM_DEV_GUID`, `XAPTUM_DEV_USER`, and
+`XAPTUM_DEV_TOKEN` with device credentials issued by Xaptum.
   
 1. Run the standalone device client.
 
         make device-console
   
-1. Send a test message (either string or binary)
+1. Send a test message (either string or binary).
 
         device:send_message(Message).
   
@@ -37,7 +37,7 @@ If no subscriber is online, messages will be buffered in this device's queue(s) 
 The subscriber will receive a JSON string with the message as a base64-encoded
 payload. For example,
 
-    device:send_message("Hello online sub 2!") .
+    device:send_message("Hello online sub 2!").
 
 results in the subscriber receiving the following message
 
@@ -46,11 +46,12 @@ results in the subscriber receiving the following message
 
 ### Subscriber
 
-To test receiving messages from device queues and sending messages to a device
+To test receiving messages from device queues and sending messages to a device:
  
-1. Set the environment variables: `XAPTUM_SUB_GUID`, `XAPTUM_SUB_USER`, and
+1. Set the environment variables `XAPTUM_SUB_GUID`, `XAPTUM_SUB_USER`, and
  `XAPTUM_SUB_TOKEN` with subscriber credentials issued by Xaptum. Set
- `XAPTUM_SUB_QUEUE` to indicate which queue this subscriber should listen on.
+ `XAPTUM_SUB_QUEUE` to indicate the queue on which this subscriber should
+ listen.
  
 1. Run the standalone subscriber client.
 
