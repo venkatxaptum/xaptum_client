@@ -8,7 +8,7 @@
 %%% @end
 %%% Created : 27. Mar 2017 12:15 PM
 %%%-------------------------------------------------------------------
--module(dummy_message_handler).
+-module(xaptum_dummy_message_handler).
 -author("iguberman").
 -behavior(gen_xaptum).
 

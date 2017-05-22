@@ -8,7 +8,7 @@
 %%% @end
 %%% Created : 08. May 2017 5:37 PM
 %%%-------------------------------------------------------------------
--module(subscriber).
+-module(xaptum_subscriber).
 -author("iguberman").
 
 %% API

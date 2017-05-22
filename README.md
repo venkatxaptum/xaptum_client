@@ -30,14 +30,14 @@ To test sending messages to preconfigured queues:
   
 1. Send a test message (either string or binary).
 
-        device:send_message(Message).
+        xaptum_device:send_message(Message).
   
 If no subscriber is online, messages will be buffered in this device's queue(s) (up to 1000 messages)
 
 The subscriber will receive a JSON string with the message as a base64-encoded
 payload. For example,
 
-    device:send_message("Hello online sub 2!").
+    xaptum_device:send_message("Hello online sub 2!").
 
 results in the subscriber receiving the following message
 
@@ -60,7 +60,7 @@ To test receiving messages from device queues and sending messages to a device:
 1. Send a control message (string or binary) to a device identified by its
  IPv6 GUID (for the purpose of this test, equivalent to XAPTUM_DEV_GUID from previous section).
  
-        subscriber:send_message(ControlMessage, DeviceIpv6).
+        xaptum_subscriber:send_message(ControlMessage, DeviceIpv6).
  
 Unlike device messages, control messages are received as-is, not as a
 base64-encoded payload in a JSON string.
@@ -73,11 +73,11 @@ a gen_server implementing xaptum communication protocol and contains all the
 functionality common to both device and subscriber 
 It handles device/subscriber authentication and subsequent sending and receiving of messages
 
-1. `dummy_message_handler.erl` default `gen_xaptum` behavior implementation. 
+1. `xaptum_dummy_message_handler.erl` default `gen_xaptum` behavior implementation. 
 Prints messages to console. 
 
-1. `device.erl` 
+1. `xaptum_device.erl` 
  implements device-specific functionality and is used by gen_xaptum
  
-1. `subscriber.erl` 
+1. `xaptum_subscriber.erl` 
  implements subscriber-specific functionality and is used by gen_xaptum

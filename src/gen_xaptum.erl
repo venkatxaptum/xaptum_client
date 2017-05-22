@@ -14,8 +14,6 @@
 -define(XAPTUM_SUB_USER, "XAPTUM_SUB_USER").
 -define(XAPTUM_SUB_TOKEN, "XAPTUM_SUB_TOKEN").
 
-
-
 %% API
 -export([
   start_link/0,
@@ -48,10 +46,10 @@ start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 start_device(Guid, User, Token)->
-  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, device], []).
+  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, ?DEVICE], []).
 
 start_subscriber(Guid, User, Token, Queue)->
-  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, Queue, subscriber], []).
+  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, Queue, ?SUBSCRIBER], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -73,19 +71,19 @@ init([]) ->
   State = init_state(#state{creds = Creds, type = Type}),
 
   start(State);
-init([Guid, User, Token, Queue, subscriber])->
+init([Guid, User, Token, Queue, ?SUBSCRIBER])->
   lager:info("Starting xaptum subscriber on ~p", [node()]),
-  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token, queue = Queue}, type = subscriber}),
+  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token, queue = Queue}, type = ?SUBSCRIBER}),
   start(State);
-init([Guid, User, Token, device])->
+init([Guid, User, Token, ?DEVICE])->
   lager:info("Starting xaptum device on ~p", [node()]),
-  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token}, type = device}),
+  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token}, type = ?DEVICE}),
   start(State).
 
 get_type()->
   case application:get_env(type) of
-    {ok, subscriber} -> {ok, subscriber};
-    {ok, device} -> {ok, device};
+    {ok, ?SUBSCRIBER} -> {ok, ?SUBSCRIBER};
+    {ok, ?DEVICE} -> {ok, ?DEVICE};
     {ok, Type} -> {error, invalid_type, Type};
     undefined -> {error, client_type_undefined}
   end.
@@ -118,13 +116,13 @@ handle_cast(authenticate, State) ->
 handle_cast(receive_message, State) ->
   start_message_receiver(State),
   {noreply, State};
-handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = subscriber} = State) ->
+handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = ?SUBSCRIBER} = State) ->
   Guid = convert_from_Ipv6Text(DestinationIp),
-  DDSMessage = subscriber:generate_message_request(Creds, Payload, Guid),
+  DDSMessage = ?SUBSCRIBER:generate_message_request(Creds, Payload, Guid),
   gen_tcp:send(Socket, DDSMessage),
   {noreply, State};
-handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = device} = State) ->
-  DDSMessage = device:generate_message_request(Creds, Payload),
+handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = ?DEVICE} = State) ->
+  DDSMessage = ?DEVICE:generate_message_request(Creds, Payload),
   gen_tcp:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast(_Other, State) ->
@@ -179,8 +177,8 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
   case receive_request_raw(Socket, 10000) of
      {ok, ?CONTROL_MSG, _PayloadSize, <<ASessionToken:?SESSION_TOKEN_SIZE/bytes, Payload/binary>>} ->
        case Type of
-         device -> ASessionToken = SessionToken;
-         subscriber -> ok
+         ?DEVICE -> ASessionToken = SessionToken;
+         ?SUBSCRIBER -> ok
        end,
       Handler:async_handle_message(Payload),
       receive_message(ParentPid, State);

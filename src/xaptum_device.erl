@@ -8,7 +8,7 @@
 %%% @end
 %%% Created : 08. May 2017 11:12 AM
 %%%-------------------------------------------------------------------
--module(device).
+-module(xaptum_device).
 -author("iguberman").
 
 -include("../include/definitions.hrl").

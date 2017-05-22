@@ -2,6 +2,9 @@
 -define('__definitions_hrl__',true).
 
 
+-define(DEVICE, xaptum_device).
+-define(SUBSCRIBER, xaptum_subscriber).
+
 -define(GUID_SIZE, 16).
 -define(USER_SIZE, 8).
 -define(TOKEN_SIZE, 8).
@@ -19,10 +22,6 @@
 -define(REG_MSG, 16).
 
 -define(CONTROL_MSG, 148).
-
--define(ENV_GUID, "XAPTUM_CLIENT_GUID").
--define(ENV_USER, "XAPTUM_CLIENT_USER").
--define(ENV_TOKEN, "XAPTUM_CLIENT_TOKEN").
 
 -define(AUTH_INFO_SIZE, (?GUID_SIZE + ?USER_SIZE + ?TOKEN_SIZE)).
 
