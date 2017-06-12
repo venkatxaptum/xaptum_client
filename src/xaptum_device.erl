@@ -18,6 +18,7 @@
 %% API
 -export([
   start/3,
+  start/4,
   send_message/1,
   send_message/2,
   populate_credentials/3,
@@ -26,8 +27,11 @@
   not_created_warning_log/0]).
 
 %% This method is for creating device(s) on the fly
-start(Guid, User, Token)->
-  xaptum_client_sup:create(?MODULE, multi, #creds{guid = Guid, user = User, token = Token}).
+start(Guid, User, Token) when is_list(Guid) ->
+  start(Guid, User, Token, list_to_atom(Guid)).
+
+start(Guid, User, Token, RegName) when is_atom(RegName)->
+  xaptum_client_sup:create(?MODULE, multi, #creds{guid = Guid, user = User, token = Token, reg_name = RegName}).
 
 %% When single device is created from env, the message will be sent to the one device identified by env
 send_message(Message) ->
@@ -38,7 +42,7 @@ send_message(Message) ->
 %% However, device can be registered as any unique atom, which then can be used here instead of Guid
 %% TODO: consider using gproc to register with multiple names
 send_message(RegName, Message) when is_atom(RegName)->
-  gen_server:cast(RegName, {send_message, Message}).
+  gen_server:cast(RegName, {send_message, Message});
 send_message(Guid, Message) when is_list(Guid)->
   gen_server:cast(list_to_atom(Guid), {send_message, Message}).
 

@@ -13,7 +13,7 @@ xaptum_client can be run as a
 1. single device or subscriber (`single` mode)
 1. gateway with multiple devices and/or subscribers (`multi` mode)
 
-## Single Mode Usage
+## Single (or device/subscriber) Mode Usage
 
 The client can either be a device that sends messages to queues or a
 subscriber that reads messages from these queues and sends control messages
@@ -69,7 +69,7 @@ Unlike device messages, control messages are received as-is, not as a
 base64-encoded payload in a JSON string.
 
 
-## Multi Mode Usage
+## Multi (or gateway) Mode Usage
 
 1. Run gateway client.
    
@@ -77,19 +77,27 @@ base64-encoded payload in a JSON string.
    
 1. Start device(s)
    
-    `xaptum_device:start(DeviceIpv6, DeviceUser, DeviceToken)`
+    `xaptum_device:start(DeviceIpv6Str, DeviceUser, DeviceToken)` or
+    
+    `xaptum_device:start(DeviceIpv6Str, DeviceUser, DeviceToken, RegNameAtom)`
     
 1. Start subscriber(s)
    
-    `xaptum_subscriber:start(SubscriberIpv6, SubUser, SubToken, Queue)`
+    `xaptum_subscriber:start(SubscriberIpv6Str, SubUser, SubToken, Queue)`  or
+    
+    `xaptum_subscriber:start(SubscriberIpv6Str, SubUser, SubToken, Queue, RegNameAtom)`
 
 1. Device sends regular message 
     
-    `xaptum_device:send_message(SrcDeviceIpv6, Message)`
+    `xaptum_device:send_message(SrcDeviceIpv6Str, Message)` or
+    
+    `xaptum_device:send_message(RegNameAtom, Message)`
     
 1. Subscriber sends control message to device
     
-    `xaptum_subscriber:send_message(SrcSubscriberIpv6, Message, DestDeviceIpv6)`
+    `xaptum_subscriber:send_message(SrcSubscriberIpv6Str, Message, DestDeviceIpv6Str)` or
+    
+    `xaptum_subscriber:send_message(RegNameAtom, Message, DestDeviceIpv6Str)`
     
 
 ### Code

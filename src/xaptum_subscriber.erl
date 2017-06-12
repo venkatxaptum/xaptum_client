@@ -24,6 +24,7 @@
 %% API
 -export([
   start/4,
+  start/5,
   send_message/2,
   send_message/3,
   populate_credentials/3,
@@ -31,16 +32,20 @@
   generate_message_request/3,
   not_created_warning_log/0]).
 
-start(Guid, User, Token, Queue) when is_list(Queue)->
-  start(Guid, User, Token, list_to_binary(Queue));
-start(Guid, User, Token, Queue) when is_binary(Queue)->
-  xaptum_client_sup:create(?MODULE, multi, #creds{guid = Guid, user = User, token = Token, queue = Queue}).
+start(Guid, User, Token, Queue) when is_list(Guid) ->
+  start(Guid, User, Token, Queue, list_to_atom(Guid)).
+
+start(Guid, User, Token, Queue, RegName) when is_list(Queue)->
+  start(Guid, User, Token, list_to_binary(Queue), RegName);
+start(Guid, User, Token, Queue, RegName) when is_binary(Queue), is_atom(RegName) ->
+  xaptum_client_sup:create(?MODULE, multi, #creds{guid = Guid, user = User, token = Token, queue = Queue, reg_name = RegName}).
+
 
 send_message(Message, DestinationGuid) ->
   gen_server:cast(?MODULE, {send_message, Message, DestinationGuid}).
 
 send_message(RegName, Message, DestinationGuid) when is_atom(RegName)->
-  gen_server:cast(RegName, {send_message, Message, DestinationGuid}).
+  gen_server:cast(RegName, {send_message, Message, DestinationGuid});
 send_message(SrcGuid, Message, DestinationGuid) when is_list(SrcGuid)->
   gen_server:cast(list_to_atom(SrcGuid), {send_message, Message, DestinationGuid}).
 

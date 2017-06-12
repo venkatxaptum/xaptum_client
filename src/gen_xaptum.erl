@@ -39,8 +39,8 @@
 
 start_link(Type, single, #creds{} = Creds) ->
   gen_server:start_link({local, Type}, ?MODULE, [Type, Creds], []);
-start_link(Type, multi, #creds{guid = Guid} = Creds) when is_list(Guid) ->
-  gen_server:start_link({local, list_to_atom(Guid)}, ?MODULE, [Type, Creds], []).
+start_link(Type, multi, #creds{reg_name = RegName} = Creds) when is_atom(RegName) ->
+  gen_server:start_link({local, RegName}, ?MODULE, [Type, Creds], []).
 
 %%%===================================================================
 %%% gen_server callbacks

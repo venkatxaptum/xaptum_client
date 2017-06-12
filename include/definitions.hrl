@@ -25,6 +25,6 @@
 
 -define(AUTH_INFO_SIZE, (?GUID_SIZE + ?USER_SIZE + ?TOKEN_SIZE)).
 
--record(creds, {guid, user, token, session_token, queue}).
+-record(creds, {guid, user, token, session_token, queue, reg_name}).
 
 -endif.
