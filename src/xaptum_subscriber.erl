@@ -39,6 +39,8 @@ start(Guid, User, Token, Queue) when is_binary(Queue)->
 send_message(Message, DestinationGuid) ->
   gen_server:cast(?MODULE, {send_message, Message, DestinationGuid}).
 
+send_message(RegName, Message, DestinationGuid) when is_atom(RegName)->
+  gen_server:cast(RegName, {send_message, Message, DestinationGuid}).
 send_message(SrcGuid, Message, DestinationGuid) when is_list(SrcGuid)->
   gen_server:cast(list_to_atom(SrcGuid), {send_message, Message, DestinationGuid}).
 

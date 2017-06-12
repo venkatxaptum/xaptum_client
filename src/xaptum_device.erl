@@ -33,7 +33,12 @@ start(Guid, User, Token)->
 send_message(Message) ->
   gen_server:cast(?MODULE, {send_message, Message}).
 
-%% When multiple devices are created on the fly, need to identify device by Guid when sending a message
+%% When multiple devices are created on the fly, need to identify device by unique id when sending a message
+%% Guid (= Ipv6 address) of the device is the initial reg name.
+%% However, device can be registered as any unique atom, which then can be used here instead of Guid
+%% TODO: consider using gproc to register with multiple names
+send_message(RegName, Message) when is_atom(RegName)->
+  gen_server:cast(RegName, {send_message, Message}).
 send_message(Guid, Message) when is_list(Guid)->
   gen_server:cast(list_to_atom(Guid), {send_message, Message}).
 
