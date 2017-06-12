@@ -3,7 +3,7 @@
 %%% @copyright (C) 2017, Xaptum, Inc.
 %%% @doc
 %%%
-%%% subscriber specific functionality to be used by gen_xaptum when type = subscriber
+%%% subscriber specific functionality to be used by gen_xaptum when type = xaptum_subscriber
 %%%
 %%% @end
 %%% Created : 08. May 2017 5:37 PM
@@ -23,24 +23,34 @@
 
 %% API
 -export([
+  start/4,
   send_message/2,
+  send_message/3,
   populate_credentials/3,
   generate_auth_request/1,
-  generate_message_request/3]).
+  generate_message_request/3,
+  not_created_warning_log/0]).
 
-send_message(Message, DestinationIp) ->
-  gen_server:cast(gen_xaptum, {send_message, Message, DestinationIp}).
+start(Guid, User, Token, Queue) when is_list(Queue)->
+  start(Guid, User, Token, list_to_binary(Queue));
+start(Guid, User, Token, Queue) when is_binary(Queue)->
+  xaptum_client_sup:create(?MODULE, multi, #creds{guid = Guid, user = User, token = Token, queue = Queue}).
 
+send_message(Message, DestinationGuid) ->
+  gen_server:cast(?MODULE, {send_message, Message, DestinationGuid}).
+
+send_message(SrcGuid, Message, DestinationGuid) when is_list(SrcGuid)->
+  gen_server:cast(list_to_atom(SrcGuid), {send_message, Message, DestinationGuid}).
 
 populate_credentials(undefined, _User, _Token)->
   case os:getenv(?XAPTUM_SUB_GUID) of
-    false -> {error, "No XAPTUM_SUB_GUID in env!"};
+    false -> {warning, "No XAPTUM_SUB_GUID in env!"};
     Guid ->
       case os:getenv(?XAPTUM_SUB_USER) of
-        false -> {error, "No XAPTUM_SUB_USER in env!"};
+        false -> {error, Guid, "No XAPTUM_SUB_USER in env!"};
         User ->
           case os:getenv(?XAPTUM_SUB_TOKEN) of
-            false -> {error, "No XAPTUM_SUB_TOKEN in env!"};
+            false -> {error, Guid, "No XAPTUM_SUB_TOKEN in env!"};
             Token ->
               {ok, Queue} = get_queue(),
               {ok, #creds{guid = Guid, user = User, token = Token, queue = list_to_binary(Queue)}}
@@ -64,7 +74,6 @@ get_queue()->
     Queue -> {ok, Queue}
   end.
 
-
 generate_auth_request(#creds{guid = Guid, user = User, token = Token, queue = Queue})->
   PayloadSize = ?GUID_SIZE + ?USER_SIZE + ?TOKEN_SIZE + size(Queue),
   <<?DDS_MARKER, ?AUTH_SUB_REQ, PayloadSize:16, Guid:?GUID_SIZE/bytes, User:?USER_SIZE/bytes, Token:?TOKEN_SIZE/bytes, Queue/binary>>.
@@ -78,3 +87,6 @@ generate_message_request(#creds{guid = Guid, session_token = SessionToken}, Mess
   Payload = <<DestinationGuid/binary, Message/binary>>,
   Size = size(SessionToken) + size(Payload),
   <<?DDS_MARKER, ?CONTROL_MSG, Size:16, SessionToken:?SESSION_TOKEN_SIZE/bytes, Payload/binary>>.
+
+not_created_warning_log()->
+  lager:warning("Subscriber not created.  Call subscriber:start(Guid, User, Token, Queue) to create subscriber(s). ~nTo create a single device on app startup:~nEither set guid, user, token, and queue app env or ~nXAPTUM_SUB_GUID, XAPTUM_SUB_USER, XAPTUM_SUB_TOKEN, and XAPTUM_SUB_QUEUE sys env and restart xaptum_client app").

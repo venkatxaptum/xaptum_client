@@ -9,8 +9,11 @@ provided `gen_xaptum` behavior to handle incoming messages.  If not set, a
 default `dummy_message_handler` that simply prints the message to console is
 used.
 
+xaptum_client can be run as a 
+1. single device or subscriber (`single` mode)
+1. gateway with multiple devices and/or subscribers (`multi` mode)
 
-## Usage
+## Single Mode Usage
 
 The client can either be a device that sends messages to queues or a
 subscriber that reads messages from these queues and sends control messages
@@ -65,6 +68,29 @@ To test receiving messages from device queues and sending messages to a device:
 Unlike device messages, control messages are received as-is, not as a
 base64-encoded payload in a JSON string.
 
+
+## Multi Mode Usage
+
+1. Run gateway client.
+   
+   `make gateway-console`
+   
+1. Start device(s)
+   
+    `xaptum_device:start(DeviceIpv6, DeviceUser, DeviceToken)`
+    
+1. Start subscriber(s)
+   
+    `xaptum_subscriber:start(SubscriberIpv6, SubUser, SubToken, Queue)`
+
+1. Device sends regular message 
+    
+    `xaptum_device:send_message(SrcDeviceIpv6, Message)`
+    
+1. Subscriber sends control message to device
+    
+    `xaptum_subscriber:send_message(SrcSubscriberIpv6, Message, DestDeviceIpv6)`
+    
 
 ### Code
 
