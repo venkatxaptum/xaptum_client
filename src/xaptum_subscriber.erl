@@ -32,8 +32,11 @@
   generate_message_request/3,
   not_created_warning_log/0]).
 
-start(Guid, User, Token, Queue) when is_list(Guid) ->
-  start(Guid, User, Token, Queue, list_to_atom(Guid)).
+%% TODO registering with the queue is temporary hack
+start(Guid, User, Token, Queue) when is_binary(Queue) ->
+  start(Guid, User, Token, Queue, binary_to_atom(Queue, utf8)).
+start(Guid, User, Token, Queue) when is_list(Queue) ->
+  start(Guid, User, Token, Queue, list_to_atom(Queue)).
 
 start(Guid, User, Token, Queue, RegName) when is_list(Queue)->
   start(Guid, User, Token, list_to_binary(Queue), RegName);
