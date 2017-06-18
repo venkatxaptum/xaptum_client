@@ -34,7 +34,7 @@
 
 %% TODO registering with the queue is temporary hack
 start(Guid, User, Token, Queue) when is_binary(Queue) ->
-  start(Guid, User, Token, Queue, binary_to_atom(Queue, utf8)).
+  start(Guid, User, Token, Queue, binary_to_atom(Queue, utf8));
 start(Guid, User, Token, Queue) when is_list(Queue) ->
   start(Guid, User, Token, Queue, list_to_atom(Queue)).
 
