@@ -41,6 +41,8 @@ send_message(Message) ->
 %% Guid (= Ipv6 address) of the device is the initial reg name.
 %% However, device can be registered as any unique atom, which then can be used here instead of Guid
 %% TODO: consider using gproc to register with multiple names
+send_message(Pid, Message) when is_pid(Pid)->
+  gen_server:cast(Pid, {send_message, Message});
 send_message(RegName, Message) when is_atom(RegName)->
   gen_server:cast(RegName, {send_message, Message});
 send_message(Guid, Message) when is_list(Guid)->

@@ -8,7 +8,7 @@
     stdlib
    ]},
   {env,[]},
-  {modules, []},
+  {modules, [gen_xaptum, xaptum_device, xaptum_subscriber]},
 
   {contributors, []},
   {licenses, []},
