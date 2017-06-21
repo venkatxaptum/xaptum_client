@@ -31,7 +31,7 @@
 
 -record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler}).
 
--callback async_handle_message(Msg :: binary()) -> Void :: any().
+-callback async_handle_message(From :: pid(), Msg :: binary()) -> Void :: any().
 
 %%%===================================================================
 %%% API
@@ -40,6 +40,7 @@
 start_link(Type, single, #creds{} = Creds) ->
   gen_server:start_link({local, Type}, ?MODULE, [Type, Creds], []);
 start_link(Type, multi, #creds{reg_name = RegName} = Creds) when is_atom(RegName) ->
+  lager:info("Starting ~p with registered_name ~p", [RegName]),
   gen_server:start_link({local, RegName}, ?MODULE, [Type, Creds], []).
 
 %%%===================================================================
@@ -145,7 +146,7 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
         xaptum_device -> ASessionToken = SessionToken;
         xaptum_subscriber -> ok
       end,
-      Handler:async_handle_message(Payload),
+      Handler:async_handle_message(ParentPid, Payload),
       receive_message(ParentPid, State);
     {error, timeout} -> % no requests within the timeout, keep trying
       receive_message(ParentPid, State);
