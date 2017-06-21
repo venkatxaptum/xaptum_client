@@ -60,6 +60,16 @@ subscriber-console: subscriber-release
 subscriber: subscriber-release
 	$(BASEDIR)/_build/subscriber/rel/$(APPNAME)/bin/$(APPNAME) start
 
+gateway-release: id
+	$(REBAR) as gateway release
+
+gateway-console: gateway-release
+	$(BASEDIR)/_build/gateway/rel/$(APPNAME)/bin/$(APPNAME) console
+
+gateway: gateway-release
+	$(BASEDIR)/_build/gateway/rel/$(APPNAME)/bin/$(APPNAME) start
+
+
 dialyzer: test
 	$(REBAR) dialyzer
 

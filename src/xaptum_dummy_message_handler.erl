@@ -13,11 +13,11 @@
 -behavior(gen_xaptum).
 
 %% API
--export([async_handle_message/1]).
+-export([async_handle_message/2]).
 
 %% NOTE this message handling business can get complicated, so in real life it is
 %% best handled by a call to
 %% gen_server:cast(?MY_HANDLER_GEN_SERVER, Message) or a gen_fsm or something like that
-async_handle_message(Message)->
-  io:format("Got message: ~p~n", [Message]),
+async_handle_message(ParentPid, Message)->
+  io:format("Got message: ~p from ~p~n", [Message, ParentPid]),
   ok.

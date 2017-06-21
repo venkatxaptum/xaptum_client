@@ -1,8 +1,9 @@
 %%%-------------------------------------------------------------------
 %%% @author iguberman
 %%% @copyright (C) 2017, Xaptum, Inc.
-%%% @doc
+%%%
 %%% gen_xaptum is a gen_server implementing xaptum communication protocol
+%%%
 %%% @end
 %%% Created : 27. Mar 2017 12:01 AM
 %%%-------------------------------------------------------------------
@@ -10,15 +11,9 @@
 -behaviour(gen_server).
 -author("iguberman").
 
--define(XAPTUM_SUB_GUID, "XAPTUM_SUB_GUID").
--define(XAPTUM_SUB_USER, "XAPTUM_SUB_USER").
--define(XAPTUM_SUB_TOKEN, "XAPTUM_SUB_TOKEN").
-
 %% API
 -export([
-  start_link/0,
-  start_device/3,
-  start_subscriber/4]).
+  start_link/3]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -36,57 +31,29 @@
 
 -record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler}).
 
--callback async_handle_message(Msg :: binary()) -> Void :: any().
+-callback async_handle_message(From :: pid(), Msg :: binary()) -> Void :: any().
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-start_link() ->
-  gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-start_device(Guid, User, Token)->
-  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, ?DEVICE], []).
-
-start_subscriber(Guid, User, Token, Queue)->
-  gen_server:start_link({local, Guid}, ?MODULE, [Guid, User, Token, Queue, ?SUBSCRIBER], []).
+start_link(Type, single, #creds{} = Creds) ->
+  gen_server:start_link({local, Type}, ?MODULE, [Type, Creds], []);
+start_link(Type, multi, #creds{reg_name = RegName} = Creds) when is_atom(RegName) ->
+  lager:info("Starting ~p with registered_name ~p", [RegName]),
+  gen_server:start_link({local, RegName}, ?MODULE, [Type, Creds], []).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([]) ->
-  {ok, Type} = get_type(),
-
-%%  application:ensure_started(lager),
-
-  Guid = application:get_env(xaptum_client, guid, undefined),
-  User = application:get_env(xaptum_client, user, undefined),
-  Token = application:get_env(xaptum_client, token, undefined),
-
-  {ok, Creds} = Type:populate_credentials(Guid, User, Token),
+init([Type, Creds]) ->
 
   lager:info("Starting ~p with credentials: ~p", [Type, Creds]),
 
   State = init_state(#state{creds = Creds, type = Type}),
 
-  start(State);
-init([Guid, User, Token, Queue, ?SUBSCRIBER])->
-  lager:info("Starting xaptum subscriber on ~p", [node()]),
-  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token, queue = Queue}, type = ?SUBSCRIBER}),
-  start(State);
-init([Guid, User, Token, ?DEVICE])->
-  lager:info("Starting xaptum device on ~p", [node()]),
-  State = init_state(#state{creds = #creds{guid = Guid, user = User, token = Token}, type = ?DEVICE}),
   start(State).
-
-get_type()->
-  case application:get_env(type) of
-    {ok, ?SUBSCRIBER} -> {ok, ?SUBSCRIBER};
-    {ok, ?DEVICE} -> {ok, ?DEVICE};
-    {ok, Type} -> {error, invalid_type, Type};
-    undefined -> {error, client_type_undefined}
-  end.
 
 start(#state{} = State)->
   gen_server:cast(self(), authenticate),
@@ -104,7 +71,6 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
     client_ip = LocalIp,
     handler = MessageHandler}.
 
-
 handle_call(_Request, _From, State) ->
   lager:warning("Don't know how to handle_call(~p, ~p, ~p)", [_Request, _From, State]),
   {reply, unsupported, State}.
@@ -116,13 +82,13 @@ handle_cast(authenticate, State) ->
 handle_cast(receive_message, State) ->
   start_message_receiver(State),
   {noreply, State};
-handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = ?SUBSCRIBER} = State) ->
+handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = xaptum_subscriber} = State) ->
   Guid = convert_from_Ipv6Text(DestinationIp),
-  DDSMessage = ?SUBSCRIBER:generate_message_request(Creds, Payload, Guid),
+  DDSMessage = xaptum_subscriber:generate_message_request(Creds, Payload, Guid),
   gen_tcp:send(Socket, DDSMessage),
   {noreply, State};
-handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = ?DEVICE} = State) ->
-  DDSMessage = ?DEVICE:generate_message_request(Creds, Payload),
+handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = xaptum_device} = State) ->
+  DDSMessage = xaptum_device:generate_message_request(Creds, Payload),
   gen_tcp:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast(_Other, State) ->
@@ -175,12 +141,12 @@ start_message_receiver(#state{socket = Socket, creds = #creds{session_token = Se
 
 receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token = SessionToken}, type = Type, handler = Handler} = State) ->
   case receive_request_raw(Socket, 10000) of
-     {ok, ?CONTROL_MSG, _PayloadSize, <<ASessionToken:?SESSION_TOKEN_SIZE/bytes, Payload/binary>>} ->
-       case Type of
-         ?DEVICE -> ASessionToken = SessionToken;
-         ?SUBSCRIBER -> ok
-       end,
-      Handler:async_handle_message(Payload),
+    {ok, ?CONTROL_MSG, _PayloadSize, <<ASessionToken:?SESSION_TOKEN_SIZE/bytes, Payload/binary>>} ->
+      case Type of
+        xaptum_device -> ASessionToken = SessionToken;
+        xaptum_subscriber -> ok
+      end,
+      Handler:async_handle_message(ParentPid, Payload),
       receive_message(ParentPid, State);
     {error, timeout} -> % no requests within the timeout, keep trying
       receive_message(ParentPid, State);
