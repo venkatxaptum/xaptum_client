@@ -40,7 +40,7 @@
 start_link(Type, single, #creds{} = Creds) ->
   gen_server:start_link({local, Type}, ?MODULE, [Type, Creds], []);
 start_link(Type, multi, #creds{reg_name = RegName} = Creds) when is_atom(RegName) ->
-  lager:info("Starting ~p with registered_name ~p", [RegName]),
+  lager:info("Starting ~p registered as ~p", [Type, RegName]),
   gen_server:start_link({local, RegName}, ?MODULE, [Type, Creds], []).
 
 %%%===================================================================
@@ -48,11 +48,7 @@ start_link(Type, multi, #creds{reg_name = RegName} = Creds) when is_atom(RegName
 %%%===================================================================
 
 init([Type, Creds]) ->
-
-  lager:info("Starting ~p with credentials: ~p", [Type, Creds]),
-
   State = init_state(#state{creds = Creds, type = Type}),
-
   start(State).
 
 start(#state{} = State)->
