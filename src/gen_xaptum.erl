@@ -95,7 +95,10 @@ handle_info(_Info, State) ->
   lager:warning("Don't know how to handle_info(~p, ~p)", [_Info, State]),
   {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{socket = undefined} = State) ->
+  ok;
+terminate(_Reason, #state{socket = Socket} = State) when is_port(Socket)->
+  gen_tcp:close(Socket),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
