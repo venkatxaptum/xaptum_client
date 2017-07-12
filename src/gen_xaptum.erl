@@ -29,7 +29,7 @@
 
 -include("../include/definitions.hrl").
 
--record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler}).
+-record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data}).
 
 -callback async_handle_message(From :: pid(), Msg :: binary()) -> Void :: any().
 
@@ -67,9 +67,10 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
     client_ip = LocalIp,
     handler = MessageHandler}.
 
-handle_call(_Request, _From, State) ->
-  lager:warning("Don't know how to handle_call(~p, ~p, ~p)", [_Request, _From, State]),
-  {reply, unsupported, State}.
+handle_call({set_meta, MetaData}, _From, State) ->
+  {reply, ok, State#state{meta_data = MetaData}};
+handle_call(get_meta, _From, #state{meta_data = MetaData} = State) ->
+  {reply, MetaData, State}.
 
 handle_cast(authenticate, State) ->
   {ok, ConnectedState} = authenticate(State),

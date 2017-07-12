@@ -19,6 +19,10 @@
 -export([
   start/3,
   start/4,
+  set_meta_data/1,
+  set_meta_data/2,
+  get_meta_data/0,
+  get_meta_data/1,
   send_message/1,
   send_message/2,
   populate_credentials/3,
@@ -36,6 +40,17 @@ start(Guid, User, Token, RegName) when is_atom(RegName)->
 %% When single device is created from env, the message will be sent to the one device identified by env
 send_message(Message) ->
   gen_server:cast(?MODULE, {send_message, Message}).
+
+set_meta_data(MetaData)->
+  gen_server:call(?MODULE, {set_meta, MetaData}).
+set_meta_data(RegName, MetaData) ->
+  gen_server:call(RegName, {set_meta, MetaData}).
+
+get_meta_data()->
+  gen_server:call(?MODULE, get_meta).
+
+get_meta_data(RegName) ->
+  gen_server:call(RegName, get_meta).
 
 %% When multiple devices are created on the fly, need to identify device by unique id when sending a message
 %% Guid (= Ipv6 address) of the device is the initial reg name.
