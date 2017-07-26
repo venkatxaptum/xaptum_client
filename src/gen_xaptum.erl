@@ -149,7 +149,7 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
       Handler:async_handle_message(ParentPid, Payload),
       receive_message(ParentPid, State);
     {error, timeout} -> % no requests within the timeout, keep trying
-      lager:warning("Haven't received any messages in 10000 ms"),
+      lager:warning("Haven't received a message in 10000 ms"),
       receive_message(ParentPid, State);
     {error, Error} ->
       lager:error("Didn't receive message due to error ~p... Resetting the connection...", [Error]),
