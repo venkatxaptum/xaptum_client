@@ -170,8 +170,7 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
   end.
 
 connect(Host, Port, _ClientIp) ->
-  gen_tcp:connect(Host, Port,
-    [binary, {active, false}, {reuseaddr, true}, {packet, 0}, {keepalive, true}, {nodelay, true}]).
+  xdaa:connect(Host, Port).
 
 receive_request_raw(Socket) ->
   receive_request_raw(Socket, 50000).
