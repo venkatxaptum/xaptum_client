@@ -6,7 +6,8 @@
   {applications,
    [kernel,
     stdlib,
-     lager
+     lager,
+    crypto
    ]},
   {env,[]},
   {modules, [gen_xaptum, xaptum_device, xaptum_subscriber, xdaa]},
