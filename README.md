@@ -13,6 +13,11 @@ xaptum_client can be run as a
 1. single device or subscriber (`single` mode)
 1. gateway with multiple devices and/or subscribers (`multi` mode)
 
+## Requirements
+Requires the libsodium library, and at least in version 1.0.12.
+Note: If installing on systems which cuts packages into subpackages,
+make sure you also get the "-dev" package containing the header files necessary in order to compile software linking to libsodium.
+
 ## Single (or device/subscriber) Mode Usage
 
 The client can either be a device that sends messages to queues or a
