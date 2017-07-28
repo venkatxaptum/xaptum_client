@@ -31,7 +31,10 @@
 
 -record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data}).
 
--callback async_handle_message(From :: pid(), Msg :: binary()) -> Void :: any().
+-callback on_message(From :: pid(), Msg :: binary()) -> Void :: any().
+-callback on_disconnect(From :: pid()) -> Void :: any().
+-callback on_connect(From :: pid()) -> Void :: any().
+-callback on_connect_retry(From :: pid()) -> Void :: any().
 
 %%%===================================================================
 %%% API
@@ -59,21 +62,22 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
   {ok, XaptumHost} = application:get_env(xaptum_host),
   {ok, XaptumPort} = application:get_env(xaptum_port),
   {ok, LocalIp} = application:get_env(local_ip),
-  {ok, MessageHandler} = application:get_env(message_handler),
+  {ok, Handler} = application:get_env(message_handler),
   State#state{
     creds = Creds#creds{guid = convert_from_Ipv6Text(Guid), user = base64:decode(User), token = base64:decode(Token)},
     xaptum_host = XaptumHost,
     xaptum_port = XaptumPort,
     client_ip = LocalIp,
-    handler = MessageHandler}.
+    handler = Handler}.
 
 handle_call({set_meta, MetaData}, _From, State) ->
   {reply, ok, State#state{meta_data = MetaData}};
 handle_call(get_meta, _From, #state{meta_data = MetaData} = State) ->
   {reply, MetaData, State}.
 
-handle_cast(authenticate, State) ->
+handle_cast(authenticate, #state{ handler = Handler} = State) ->
   {ok, ConnectedState} = authenticate(State),
+  Handler:on_connect(self()),
   gen_server:cast(self(), receive_message),
   {noreply, ConnectedState};
 handle_cast(receive_message, State) ->
@@ -109,7 +113,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type} = State) ->
+authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type, handler = Handler} = State) ->
   lager:info("Authenticating ~p with credentials ~p", [Type, Info]),
 
   AuthRequest = Type:generate_auth_request(Info),
@@ -130,6 +134,7 @@ authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp
     {error, Error} ->
       lager:warning("Can't connect to server due to connection error ~p, we'll be retrying indefinitely...", [Error]),
       timer:sleep(2000),
+      Handler:on_connect_retry(self()),
       authenticate(State)
   end.
 
@@ -140,25 +145,27 @@ start_message_receiver(#state{socket = Socket, creds = #creds{session_token = Se
   gen_tcp:controlling_process(Socket, Pid).
 
 receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token = SessionToken}, type = Type, handler = Handler} = State) ->
-  case receive_request_raw(Socket, 10000) of
+  case receive_request_raw(Socket, 30000) of
     {ok, ?CONTROL_MSG, _PayloadSize, <<ASessionToken:?SESSION_TOKEN_SIZE/bytes, Payload/binary>>} ->
       case Type of
         xaptum_device -> ASessionToken = SessionToken;
         xaptum_subscriber -> ok
       end,
-      Handler:async_handle_message(ParentPid, Payload),
+      Handler:on_message(ParentPid, Payload),
       receive_message(ParentPid, State);
     {error, timeout} -> % no requests within the timeout, keep trying
-      lager:warning("Haven't received a message in 10000 ms"),
+      lager:warning("Haven't received a message in 30000 ms"),
       receive_message(ParentPid, State);
     {error, Error} ->
       lager:error("Didn't receive message due to error ~p... Resetting the connection...", [Error]),
         catch gen_tcp:close(Socket),
-      timer:sleep(10000),
+      timer:sleep(5000),
+      Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate);
     Other -> lager:error("Received unexpected response: ~p", [Other]),
         catch gen_tcp:close(Socket),
-      timer:sleep(10000),
+      timer:sleep(5000),
+      Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate)
   end.
 
