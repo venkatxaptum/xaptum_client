@@ -86,11 +86,11 @@ handle_cast(receive_message, State) ->
 handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = xaptum_subscriber} = State) ->
   Guid = convert_from_Ipv6Text(DestinationIp),
   DDSMessage = xaptum_subscriber:generate_message_request(Creds, Payload, Guid),
-  gen_tcp:send(Socket, DDSMessage),
+  ssl:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = xaptum_device} = State) ->
   DDSMessage = xaptum_device:generate_message_request(Creds, Payload),
-  gen_tcp:send(Socket, DDSMessage),
+  ssl:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast(_Other, State) ->
   lager:warning("Don't know how to handle_cast(~p, ~p)", [_Other, State]),
@@ -121,7 +121,7 @@ authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp
   case connect(Host, Port, ClientIp) of
     {ok, Socket} ->
       lager:info("Connected to ~p:~b from ~p", [Host, Port, Socket]),
-      gen_tcp:send(Socket, AuthRequest),
+      ssl:send(Socket, AuthRequest),
       case receive_request_raw(Socket, 100000) of
         {ok, ?AUTH_RES, ?SESSION_TOKEN_SIZE, <<SessionToken:?SESSION_TOKEN_SIZE/bytes>>} ->
           lager:info("Received AUTH_RES with SessionToken ~p", [SessionToken]),
@@ -142,7 +142,7 @@ authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp
 start_message_receiver(#state{socket = Socket, creds = #creds{session_token = SessionToken}} = State) ->
   lager:info("Entering receive_control_message loop with Socket ~p and SessionToken ~p...", [Socket, SessionToken]),
   Pid = spawn(?MODULE, receive_message, [self(), State]),
-  gen_tcp:controlling_process(Socket, Pid).
+  ssl:controlling_process(Socket, Pid).
 
 receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token = SessionToken}, type = Type, handler = Handler} = State) ->
   case receive_request_raw(Socket, 30000) of
@@ -158,12 +158,12 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
       receive_message(ParentPid, State);
     {error, Error} ->
       lager:error("Didn't receive message due to error ~p... Resetting the connection...", [Error]),
-        catch gen_tcp:close(Socket),
+        catch ssl:close(Socket),
       timer:sleep(5000),
       Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate);
     Other -> lager:error("Received unexpected response: ~p", [Other]),
-        catch gen_tcp:close(Socket),
+        catch ssl:close(Socket),
       timer:sleep(5000),
       Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate)
@@ -176,9 +176,9 @@ receive_request_raw(Socket) ->
   receive_request_raw(Socket, 50000).
 
 receive_request_raw(Socket, Timeout) ->
-  case gen_tcp:recv(Socket, 4, Timeout) of
+  case ssl:recv(Socket, 4, Timeout) of
     {ok, <<?DDS_MARKER:8, ReqType:8, PayloadSize:16>>} ->
-      case gen_tcp:recv(Socket, PayloadSize, 20000) of
+      case ssl:recv(Socket, PayloadSize, 20000) of
         {ok, Payload} ->
           {ok, ReqType, PayloadSize, Payload};
         {error, Error} ->
