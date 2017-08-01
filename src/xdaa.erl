@@ -146,8 +146,21 @@ xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKeySwapped) 
 xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKeySwapped, ClientECDHEPrivKey) ->
         ServerECDHEPubKey = reverse_bytes(ServerECDHEPubKeySwapped),
         DHSharedSecret = enacl:curve25519_scalarmult(ClientECDHEPrivKey, ServerECDHEPubKey),
-        lager:debug("Got shared-secret:~p", [DHSharedSecret]),
-        {ok, TCPSocket}.
+        lager:debug("Got shared-secret:~p, starting TLS handshake...", [DHSharedSecret]),
+        xdaa_tls_connect(TCPSocket, DHSharedSecret).
+
+xdaa_tls_connect(TCPSocket, DHSharedSecret) ->
+        SwappedDHSharedSecret = reverse_bytes(DHSharedSecret),
+        SSLOptions = [{ciphers, [{psk, aes_256_cbc, sha}]},
+                      {psk_identity, "id"},
+                      {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<SwappedDHSharedSecret/binary>>}}],
+        case ssl:connect(TCPSocket, SSLOptions, ?TIMEOUT) of
+                {ok, SSLSocket} ->
+                        lager:debug("Completed TLS handshake"),
+                        {ok, SSLSocket};
+                {error, Reason} ->
+                        {error, Reason}
+        end.
 
 reverse_bytes(Input) ->
         %% Interpret input as little-endian, then re-interpret as big-endian.
