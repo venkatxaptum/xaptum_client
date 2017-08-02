@@ -34,25 +34,25 @@ tcp_connect(Host, Port) ->
         end.
 
 xdaa_send_client_hello(TCPSocket) ->
-        %% TODO: Get the GID (and key-pair) from file.
-        GID = <<"1234567898765432">>,
+        {MyDSAPropList, ServerDSAPropList} = create_gid_list_from_file("foo.csv"),
+        {MyGID, MyDSAPubKey} = hd(MyDSAPropList),
         ClientNonce = enacl:randombytes(?XDAA_NONCE_LENGTH),
         Packet = <<?XDAA_VERSION:8,
                    ?XDAA_GID_LENGTH:16/big,
                    ?XDAA_NONCE_LENGTH:16/big,
-                   GID/binary,
+                   MyGID/binary,
                    ClientNonce/binary>>,
         lager:debug("Sending XDAA ClientHello (~p)...", [Packet]),
         case gen_tcp:send(TCPSocket, Packet) of
                 ok ->
                         lager:debug("Sent XDAA ClientHello (~p) of length ~p octets", [Packet, bit_size(Packet) div 8]),
-                        xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce);
+                        xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPubKey, ServerDSAPropList);
                 {error, Reason} ->
                         lager:warning("XDAA: Error sending ClientHello: ~p", [Reason]),
                         {error, Reason}
         end.
 
-xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce) ->
+xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPubKey, ServerDSAPropList) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, ?TIMEOUT) of
                 {ok, <<?XDAA_VERSION:8,
                        ?XDAA_GID_LENGTH:16/big,
@@ -61,7 +61,7 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce) ->
                        ServerSigLength:16/big>>
                 } ->
                         lager:debug("Received XDAA ServerKeyExchangeHeader with SigLength:~p", [ServerSigLength]),
-                        xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce);
+                        xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAPubKey, ServerDSAPropList);
                 {ok, <<?XDAA_VERSION:8,
                        ServerGIDLength:16/big,
                        ServerNonceLength:16/big,
@@ -85,7 +85,7 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce) ->
                         {error, Reason}
         end.
 
-xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce) ->
+xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAPubKey, ServerDSAPropList) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_GID_LENGTH+?XDAA_NONCE_LENGTH+?XDAA_ECDHE_PUB_KEY_LENGTH+ServerSigLength, ?TIMEOUT) of
                 {ok, <<ServerGID:?XDAA_GID_LENGTH/binary-unit:8,
                        ServerNonce:?XDAA_NONCE_LENGTH/binary-unit:8,
@@ -94,7 +94,7 @@ xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce) ->
                 } ->
                         lager:debug("Received XDAA ServerKeyExchange with GID:~p, Nonce:~p, SwappedPubKey:~p, and Sig:~p",
                                     [ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig]),
-                        xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce);
+                        xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPubKey, ServerDSAPropList);
                 {ok, _} ->
                         lager:warning("XDAA: Received mal-formed ServerKeyExchange", []),
                         {error, "XDAA: Mal-formed ServerKeyExchange message"};
@@ -102,55 +102,49 @@ xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce) ->
                         {error, Reason}
         end.
 
-xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce) ->
-        %% TODO: Verify GID is in known list
-        GIDVerify = ok,
-        case GIDVerify of
-                ok ->
+xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPubKey, ServerDSAPropList) ->
+        case proplists:lookup(ServerGID, ServerDSAPropList) of
+                {ServerGID, ServerDSAPubKey} ->
                         lager:debug("Server GID (~p) accepted", [ServerGID]),
-                        xdaa_validate_server_signature(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce);
-                {error, Reason} ->
-                        lager:info("XDAA: Server GID (~p) rejected", [ServerGID]),
-                        {error, Reason}
+                        xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPubKey);
+                none ->
+                        lager:info("XDAA: Server GID (~p) not recognized", [ServerGID]),
+                        {error, "XDAA: Server GID not recognized"}
         end.
 
-xdaa_validate_server_signature(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce) ->
+xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPubKey) ->
         SigStruct = <<ServerECDHEPubKeySwapped/binary, ClientNonce/binary>>,
-        %% TODO: Read this from file.
-        ServerECDSAPubKey = 16#04D676C0F20309A1060A15ADBF20A28C27494908F13F34E3DA1F4973DD19B62DA281BBDEEB0D00354CD0A0E437958DE2BBD32BA70FE8FF805D9C395A1E069CDCEB,
         case crypto:verify(ecdsa,
                            sha256,
                            SigStruct,
                            ServerSig,
-                           [ServerECDSAPubKey, secp256r1] ) of
+                           [ServerDSAPubKey, secp256r1] ) of
                 true ->
                         lager:debug("XDAA: Validation of server signature successful", []),
                         ServerECDHEPubKey = reverse_bytes(ServerECDHEPubKeySwapped),
-                        xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey);
+                        xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey, MyDSAPubKey);
                 false ->
                         lager:warning("XDAA: Validation of server signature failed", []),
                         {error, "XDAA: Validation of server signature failed"}
         end.
 
-xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey) ->
+xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey, MyDSAPubKey) ->
         #{public := ClientECDHEPubKey, secret := ClientECDHEPrivKey} = enacl:kx_keypair(),
         case bit_size(ClientECDHEPubKey) div 8 of
                 ?XDAA_ECDHE_PUB_KEY_LENGTH ->
-                        xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey);
+                        xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey, MyDSAPubKey);
                 PubKeyLength ->
                         lager:warning("XDAA: Generated ECDHE key with unexpected length: ~p (not ~p)", [PubKeyLength, ?XDAA_ECDHE_PUB_KEY_LENGTH]),
                         {error, "XDAA: Generated ECDHE key with unexpected length"}
         end.
 
-xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey) ->
+xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey, MyDSAPubKey) ->
         ClientECDHEPubKeySwapped = reverse_bytes(ClientECDHEPubKey),
         SigStruct = <<ClientECDHEPubKeySwapped/binary, ServerNonce/binary>>,
-        %% TODO: Read this from file.
-        ClientECDSAPrivKey = 16#43F8F422782842DE799239644A49E359FDBFF81AB604AFD8BE0089B4F3686A0C,
         Signature = crypto:sign(ecdsa,
                                 sha256,
                                 SigStruct,
-                                [ClientECDSAPrivKey, secp256r1]),
+                                [MyDSAPubKey, secp256r1]),
         SignatureLength = bit_size(Signature) div 8,
         xdaa_send_client_key_exchange(TCPSocket, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey).
 
@@ -192,3 +186,14 @@ reverse_bytes(Input) ->
         Size = size(Input),
         <<AsLittle:Size/little-unit:8>> = Input,
         <<AsLittle:Size/big-unit:8>>.
+
+create_gid_list_from_file(_) ->
+        %% TODO
+        %% A tuple of proplists:
+        %%      - The first proplist is my GID and ECDSA private key (just one entry),
+        %%      - The second proplist is all accepted server GIDs and ECDSA public keys.
+        {[{<<"1234567898765432">>,
+          16#43F8F422782842DE799239644A49E359FDBFF81AB604AFD8BE0089B4F3686A0C}],
+         [{<<"1234567898765432">>,
+          16#04D676C0F20309A1060A15ADBF20A28C27494908F13F34E3DA1F4973DD19B62DA281BBDEEB0D00354CD0A0E437958DE2BBD32BA70FE8FF805D9C395A1E069CDCEB}]
+        }.
