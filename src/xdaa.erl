@@ -151,7 +151,7 @@ xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKeySwapped, ClientECDHEPrivKey)
 
 xdaa_tls_connect(TCPSocket, DHSharedSecret) ->
         SwappedDHSharedSecret = reverse_bytes(DHSharedSecret),
-        SSLOptions = [{ciphers, [{ecdhe_psk, aes_256_cbc, sha384}]},
+        SSLOptions = [{ciphers, [{psk, aes_256_gcm, null, sha384}]},
                       {psk_identity, "id"},
                       {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<SwappedDHSharedSecret/binary>>}}],
         case ssl:connect(TCPSocket, SSLOptions, ?TIMEOUT) of
