@@ -1,3 +1,11 @@
+%%%-------------------------------------------------------------------
+%%% @author zanebeckwith
+%%% @copyright (C) 2017, Xaptum, Inc.
+%%% @doc
+%%%
+%%% @end
+%%% xdaa implements the Xaptum TLS-DAA handshake protocol
+%%%-------------------------------------------------------------------
 -module(xdaa).
 -export([connect/2]).
 
