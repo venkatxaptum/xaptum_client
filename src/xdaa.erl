@@ -15,6 +15,7 @@
 %% Sizes are in octets
 -define(XDAA_GID_LENGTH, 16).
 -define(XDAA_NONCE_LENGTH, 32).
+-define(XDAA_ECDHE_PUB_KEY_LENGTH, 32).
 -define(XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, 9).
 
 connect(Host, Port) ->
@@ -54,18 +55,27 @@ xdaa_send_client_hello(TCPSocket) ->
 xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, ?TIMEOUT) of
                 {ok, <<?XDAA_VERSION:8,
+                       ?XDAA_GID_LENGTH:16/big,
+                       ?XDAA_NONCE_LENGTH:16/big,
+                       ?XDAA_ECDHE_PUB_KEY_LENGTH:16/big,
+                       ServerSigLength:16/big>>
+                } ->
+                        lager:debug("Received XDAA ServerKeyExchangeHeader with SigLength:~p", [ServerSigLength]),
+                        xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce);
+                {ok, <<?XDAA_VERSION:8,
                        ServerGIDLength:16/big,
                        ServerNonceLength:16/big,
                        ServerECDHEPubKeyLength:16/big,
                        ServerSigLength:16/big>>
                 } ->
-                        lager:debug("Received XDAA ServerKeyExchangeHeader with GIDLength:~p, NonceLength:~p, PubKeyLength:~p, and SigLength:~p",
-                                    [ServerGIDLength, ServerNonceLength, ServerECDHEPubKeyLength, ServerSigLength]),
-                        xdaa_wait_on_server_key_exchange(TCPSocket, ServerGIDLength, ServerNonceLength, ServerECDHEPubKeyLength, ServerSigLength, ClientNonce);
+                        lager:warning("XDAA: Received ServerKeyExchange header with incorrect lengths - " ++
+                                        "GIDLength:~p(not ~p), NonceLength:~p(not ~p), PubKeyLength:~p(not ~p), and SigLength:~p",
+                                      [ServerGIDLength, ?XDAA_GID_LENGTH, ServerNonceLength, ?XDAA_NONCE_LENGTH, ServerECDHEPubKeyLength, ?XDAA_ECDHE_PUB_KEY_LENGTH, ServerSigLength]),
+                        {error, "XDAA: Incorrect lengths in ServerKeyExchange header"};
                 {ok, <<Version:8,
                        _/binary>>
                 } ->
-                        lager:warning("XDAA: Received ServerKeyExchange header with unsupported version: ~p", [Version]),
+                        lager:warning("XDAA: Received ServerKeyExchange header with unsupported version: ~p(not ~p)", [Version, ?XDAA_VERSION]),
                         {error, "XDAA: Unsupported version in ServerKeyExchange header"};
                 {ok, _} ->
                         lager:warning("XDAA: Received mal-formed ServerKeyExchange header", []),
@@ -75,11 +85,11 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce) ->
                         {error, Reason}
         end.
 
-xdaa_wait_on_server_key_exchange(TCPSocket, ServerGIDLength, ServerNonceLength, ServerECDHEPubKeyLength, ServerSigLength, ClientNonce) ->
-        case gen_tcp:recv(TCPSocket, ServerGIDLength+ServerNonceLength+ServerECDHEPubKeyLength+ServerSigLength, ?TIMEOUT) of
-                {ok, <<ServerGID:ServerGIDLength/binary-unit:8,
-                       ServerNonce:ServerNonceLength/binary-unit:8,
-                       ServerECDHEPubKeySwapped:ServerECDHEPubKeyLength/binary-unit:8,
+xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce) ->
+        case gen_tcp:recv(TCPSocket, ?XDAA_GID_LENGTH+?XDAA_NONCE_LENGTH+?XDAA_ECDHE_PUB_KEY_LENGTH+ServerSigLength, ?TIMEOUT) of
+                {ok, <<ServerGID:?XDAA_GID_LENGTH/binary-unit:8,
+                       ServerNonce:?XDAA_NONCE_LENGTH/binary-unit:8,
+                       ServerECDHEPubKeySwapped:?XDAA_ECDHE_PUB_KEY_LENGTH/binary-unit:8,
                        ServerSig:ServerSigLength/binary-unit:8>>
                 } ->
                         lager:debug("Received XDAA ServerKeyExchange with GID:~p, Nonce:~p, SwappedPubKey:~p, and Sig:~p",
@@ -115,52 +125,60 @@ xdaa_validate_server_signature(TCPSocket, ServerGID, ServerNonce, ServerECDHEPub
                            [ServerECDSAPubKey, secp256r1] ) of
                 true ->
                         lager:debug("XDAA: Validation of server signature successful", []),
-                        xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKeySwapped);
+                        ServerECDHEPubKey = reverse_bytes(ServerECDHEPubKeySwapped),
+                        xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey);
                 false ->
                         lager:warning("XDAA: Validation of server signature failed", []),
                         {error, "XDAA: Validation of server signature failed"}
         end.
 
-xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKeySwapped) ->
-        % Generate ECDHE key pair
+xdaa_generate_ecdhe_keys(TCPSocket, ServerNonce, ServerECDHEPubKey) ->
         #{public := ClientECDHEPubKey, secret := ClientECDHEPrivKey} = enacl:kx_keypair(),
-        ClientECDHEPubKeySwapped = reverse_bytes(ClientECDHEPubKey),
+        case bit_size(ClientECDHEPubKey) div 8 of
+                ?XDAA_ECDHE_PUB_KEY_LENGTH ->
+                        xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey);
+                PubKeyLength ->
+                        lager:warning("XDAA: Generated ECDHE key with unexpected length: ~p (not ~p)", [PubKeyLength, ?XDAA_ECDHE_PUB_KEY_LENGTH]),
+                        {error, "XDAA: Generated ECDHE key with unexpected length"}
+        end.
 
-        % Generate signature (and its length) from crypto
+xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPubKey, ClientECDHEPrivKey) ->
+        ClientECDHEPubKeySwapped = reverse_bytes(ClientECDHEPubKey),
         SigStruct = <<ClientECDHEPubKeySwapped/binary, ServerNonce/binary>>,
+        %% TODO: Read this from file.
         ClientECDSAPrivKey = 16#43F8F422782842DE799239644A49E359FDBFF81AB604AFD8BE0089B4F3686A0C,
         Signature = crypto:sign(ecdsa,
                                 sha256,
                                 SigStruct,
                                 [ClientECDSAPrivKey, secp256r1]),
-        ECDHEPubKeyLength = bit_size(ClientECDHEPubKeySwapped) div 8,
-        SigLength = bit_size(Signature) div 8,
+        SignatureLength = bit_size(Signature) div 8,
+        xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey).
 
+xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey) ->
         Packet = <<?XDAA_VERSION:8,
-                   ECDHEPubKeyLength:16/big,
-                   SigLength:16/big,
+                   ?XDAA_ECDHE_PUB_KEY_LENGTH:16/big,
+                   SignatureLength:16/big,
                    ClientECDHEPubKeySwapped/binary,
                    Signature/binary>>,
         lager:debug("Sending XDAA ClientKeyExchange (~p)...", [Packet]),
         case gen_tcp:send(TCPSocket, Packet) of
                 ok ->
                         lager:debug("Sent XDAA ClientKeyExchange (~p) of length ~p octets", [Packet, bit_size(Packet) div 8]),
-                        xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKeySwapped, ClientECDHEPrivKey);
+                        xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKey, ClientECDHEPrivKey);
                 {error, Reason} ->
                         {error, Reason}
         end.
 
-xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKeySwapped, ClientECDHEPrivKey) ->
-        ServerECDHEPubKey = reverse_bytes(ServerECDHEPubKeySwapped),
+xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKey, ClientECDHEPrivKey) ->
         DHSharedSecret = enacl:curve25519_scalarmult(ClientECDHEPrivKey, ServerECDHEPubKey),
         lager:debug("Got shared-secret:~p, starting TLS handshake...", [DHSharedSecret]),
-        xdaa_tls_connect(TCPSocket, DHSharedSecret).
+        DHSharedSecretSwapped = reverse_bytes(DHSharedSecret),
+        xdaa_tls_connect(TCPSocket, DHSharedSecretSwapped).
 
-xdaa_tls_connect(TCPSocket, DHSharedSecret) ->
-        SwappedDHSharedSecret = reverse_bytes(DHSharedSecret),
+xdaa_tls_connect(TCPSocket, DHSharedSecretSwapped) ->
         SSLOptions = [{ciphers, [{psk, aes_256_gcm, null, sha384}]},
                       {psk_identity, "id"},
-                      {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<SwappedDHSharedSecret/binary>>}}],
+                      {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<DHSharedSecretSwapped/binary>>}}],
         case ssl:connect(TCPSocket, SSLOptions, ?TIMEOUT) of
                 {ok, SSLSocket} ->
                         lager:debug("Completed TLS handshake"),
