@@ -1,6 +1,5 @@
 -module(xdaa).
-%% -export([connect/2]).
--compile(export_all).
+-export([connect/2]).
 
 -define(TIMEOUT, 5000).
 -define(XDAA_VERSION, 0).
