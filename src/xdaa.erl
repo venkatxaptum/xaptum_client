@@ -152,9 +152,9 @@ xdaa_generate_signature(TCPSocket, ServerNonce, ServerECDHEPubKey, ClientECDHEPu
                                 SigStruct,
                                 [ClientECDSAPrivKey, secp256r1]),
         SignatureLength = bit_size(Signature) div 8,
-        xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey).
+        xdaa_send_client_key_exchange(TCPSocket, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey).
 
-xdaa_send_client_key_exchange(TCPSocket, ServerNonce, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey) ->
+xdaa_send_client_key_exchange(TCPSocket, ServerECDHEPubKey, Signature, SignatureLength, ClientECDHEPubKeySwapped, ClientECDHEPrivKey) ->
         Packet = <<?XDAA_VERSION:8,
                    ?XDAA_ECDHE_PUB_KEY_LENGTH:16/big,
                    SignatureLength:16/big,
