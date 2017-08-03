@@ -27,8 +27,7 @@ group_keys_open_file(Host, Port) ->
                 {ok, GroupKeysFile} ->
                         group_keys_ignore_first_line(GroupKeysFile, Host, Port);
                 {error, Reason} ->
-                        lager:warning("XDAA: Error opening group keys file \"~p\": ~p", [GroupKeysFileName, Reason]),
-                        {error, Reason}
+                        exit("XDAA: Error opening group keys file \"~p\": ~p", [GroupKeysFileName, Reason])
         end.
 
 group_keys_ignore_first_line(GroupKeysFile, Host, Port) ->
@@ -37,14 +36,11 @@ group_keys_ignore_first_line(GroupKeysFile, Host, Port) ->
                 {ok, "gid,public,private\n"} ->
                         group_keys_get_my_info(GroupKeysFile, Host, Port);
                 {ok, FirstLine} ->
-                        lager:warning("XDAA: Unexpected first line in group keys file: ~p", [FirstLine]),
-                        {error, "XDAA: Unexpected first line in group keys file"};
+                        exit("XDAA: Unexpected first line in group keys file: ~p", [FirstLine]);
                 eof ->
-                        lager:warning("XDAA: Empty group keys file!"),
-                        {error, "XDAA: Empty group keys file!"};
+                        exit("XDAA: Empty group keys file!");
                 {error, Reason} ->
-                        lager:warning("XDAA: Error reading first line in group keys file: ~p", [Reason]),
-                        {error, Reason}
+                        exit("XDAA: Error reading first line in group keys file: ~p", [Reason])
         end.
 
 group_keys_get_my_info(GroupKeysFile, Host, Port) ->
@@ -54,11 +50,9 @@ group_keys_get_my_info(GroupKeysFile, Host, Port) ->
 
                         group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, [], Host, Port);
                 eof ->
-                        lager:warning("Empty group keys file!"),
-                        {error, "Empty group keys file!"};
+                        exit("XDAA: Empty group keys file!");
                 {error, Reason} ->
-                        lager:warning("Error parsing first real line in group keys file: ~p", [Reason]),
-                        {error, Reason}
+                        exit("XDAA: Error parsing first real line in group keys file: ~p", [Reason])
         end.
 
 group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, ServerDSAPropList, Host, Port) ->
@@ -70,8 +64,7 @@ group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, ServerDSAPr
                         file:close(GroupKeysFile),
                         tcp_connect(Host, Port, MyGID, MyDSAPrivKey, ServerDSAPropList);
                 {error, Reason} ->
-                        lager:warning("Error reading line in group keys file: ~p", [Reason]),
-                        {error, Reason}
+                        exit("XDAA: Error reading line in group keys file: ~p", [Reason])
         end.
 
 tcp_connect(Host, Port, MyGID, MyDSAPrivKey, ServerDSAPropList) ->
