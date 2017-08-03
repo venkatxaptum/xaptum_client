@@ -170,7 +170,7 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
   end.
 
 connect(Host, Port, _ClientIp) ->
-  xdaa:connect(Host, Port).
+  xdaa:start(Host, Port).
 
 receive_request_raw(Socket) ->
   receive_request_raw(Socket, 50000).
