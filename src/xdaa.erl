@@ -7,7 +7,7 @@
 %%% xdaa implements the Xaptum TLS-DAA handshake protocol
 %%%-------------------------------------------------------------------
 -module(xdaa).
--export([start/2]).
+-export([start/4]).
 
 -define(TIMEOUT, 5000).
 -define(XDAA_VERSION, 0).
@@ -18,84 +18,27 @@
 -define(XDAA_ECDHE_PUB_KEY_LENGTH, 32).
 -define(XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, 9).
 
-start(Host, Port) ->
-        group_keys_open_file(Host, Port).
+start(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey) ->
+        xdaa_send_client_hello(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey).
 
-group_keys_open_file(Host, Port) ->
-        {ok, GroupKeysFileName} = application:get_env(group_keys_file),
-        case file:open(GroupKeysFileName, [read]) of
-                {ok, GroupKeysFile} ->
-                        group_keys_ignore_first_line(GroupKeysFile, Host, Port);
-                {error, Reason} ->
-                        exit("XDAA: Error opening group keys file \"~p\": ~p", [GroupKeysFileName, Reason])
-        end.
-
-group_keys_ignore_first_line(GroupKeysFile, Host, Port) ->
-        case file:read_line(GroupKeysFile) of
-                {ok, "gid,public,private" ++ _} ->
-                        group_keys_get_my_info(GroupKeysFile, Host, Port);
-                {ok, FirstLine} ->
-                        exit("XDAA: Unexpected first line in group keys file: ~p", [FirstLine]);
-                eof ->
-                        exit("XDAA: Empty group keys file!");
-                {error, Reason} ->
-                        exit("XDAA: Error reading first line in group keys file: ~p", [Reason])
-        end.
-
-group_keys_get_my_info(GroupKeysFile, Host, Port) ->
-        case file:read_line(GroupKeysFile) of
-                {ok, Line} ->
-                        {MyGID,_,MyDSAPrivKey} = parse_group_key_file_line(Line),
-
-                        group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, [], Host, Port);
-                eof ->
-                        exit("XDAA: Empty group keys file!");
-                {error, Reason} ->
-                        exit("XDAA: Error parsing first real line in group keys file: ~p", [Reason])
-        end.
-
-group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, ServerDSAPropList, Host, Port) ->
-        case file:read_line(GroupKeysFile) of
-                {ok, Line} ->
-                        {GID,PublicKey} = parse_group_key_file_line(Line),
-                        group_keys_read_next_server_line(GroupKeysFile, MyGID, MyDSAPrivKey, [{GID, PublicKey}|ServerDSAPropList], Host, Port);
-                eof ->
-                        file:close(GroupKeysFile),
-                        tcp_connect(Host, Port, MyGID, MyDSAPrivKey, ServerDSAPropList);
-                {error, Reason} ->
-                        exit("XDAA: Error reading line in group keys file: ~p", [Reason])
-        end.
-
-tcp_connect(Host, Port, MyGID, MyDSAPrivKey, ServerDSAPropList) ->
-        case gen_tcp:connect(Host,
-                             Port, 
-    		             [binary, {active, false}, {packet, 0}, {keepalive, true}, {nodelay, true}]) of
-                {ok, TCPSocket} ->
-                        lager:debug("TCP connection established with host:~p on port:~p", [Host, Port]),
-                        xdaa_send_client_hello(TCPSocket, MyGID, MyDSAPrivKey, ServerDSAPropList);
-                {error, Reason} ->
-                        lager:warning("Error making TCP connection: ~p", [Reason]),
-                        {error, Reason}
-        end.
-
-xdaa_send_client_hello(TCPSocket, MyGID, MyDSAPrivKey, ServerDSAPropList) ->
+xdaa_send_client_hello(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey) ->
         ClientNonce = enacl:randombytes(?XDAA_NONCE_LENGTH),
         Packet = <<?XDAA_VERSION:8,
                    ?XDAA_GID_LENGTH:16/big,
                    ?XDAA_NONCE_LENGTH:16/big,
-                   MyGID/binary,
+                   GID/binary,
                    ClientNonce/binary>>,
         lager:debug("Sending XDAA ClientHello (~p)...", [Packet]),
         case gen_tcp:send(TCPSocket, Packet) of
                 ok ->
                         lager:debug("Sent XDAA ClientHello (~p) of length ~p octets", [Packet, bit_size(Packet) div 8]),
-                        xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPrivKey, ServerDSAPropList);
+                        xdaa_wait_on_server_key_exchange_header(TCPSocket, GID, ClientNonce, MyDSAPrivKey, ServerDSAPubKey);
                 {error, Reason} ->
                         lager:warning("XDAA: Error sending ClientHello: ~p", [Reason]),
                         {error, Reason}
         end.
 
-xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPrivKey, ServerDSAPropList) ->
+xdaa_wait_on_server_key_exchange_header(TCPSocket, GID, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, ?TIMEOUT) of
                 {ok, <<?XDAA_VERSION:8,
                        ?XDAA_GID_LENGTH:16/big,
@@ -104,7 +47,7 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPrivKey, Se
                        ServerSigLength:16/big>>
                 } ->
                         lager:debug("Received XDAA ServerKeyExchangeHeader with SigLength:~p", [ServerSigLength]),
-                        xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPropList);
+                        xdaa_wait_on_server_key_exchange(TCPSocket, GID, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPubKey);
                 {ok, <<?XDAA_VERSION:8,
                        ServerGIDLength:16/big,
                        ServerNonceLength:16/big,
@@ -128,7 +71,7 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, ClientNonce, MyDSAPrivKey, Se
                         {error, Reason}
         end.
 
-xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPropList) ->
+xdaa_wait_on_server_key_exchange(TCPSocket, GID, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_GID_LENGTH+?XDAA_NONCE_LENGTH+?XDAA_ECDHE_PUB_KEY_LENGTH+ServerSigLength, ?TIMEOUT) of
                 {ok, <<ServerGID:?XDAA_GID_LENGTH/binary-unit:8,
                        ServerNonce:?XDAA_NONCE_LENGTH/binary-unit:8,
@@ -137,7 +80,7 @@ xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAP
                 } ->
                         lager:debug("Received XDAA ServerKeyExchange with GID:~p, Nonce:~p, SwappedPubKey:~p, and Sig:~p",
                                     [ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig]),
-                        xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPropList);
+                        xdaa_validate_server_gid(TCPSocket, GID, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPubKey);
                 {ok, _} ->
                         lager:warning("XDAA: Received mal-formed ServerKeyExchange", []),
                         {error, "XDAA: Mal-formed ServerKeyExchange message"};
@@ -145,12 +88,12 @@ xdaa_wait_on_server_key_exchange(TCPSocket, ServerSigLength, ClientNonce, MyDSAP
                         {error, Reason}
         end.
 
-xdaa_validate_server_gid(TCPSocket, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPropList) ->
-        case proplists:lookup(ServerGID, ServerDSAPropList) of
-                {ServerGID, ServerDSAPubKey} ->
+xdaa_validate_server_gid(TCPSocket, GID, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
+        case string:equal(ServerGID, GID) of
+                true ->
                         lager:debug("Server GID (~p) accepted", [ServerGID]),
                         xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey);
-                none ->
+                false ->
                         lager:info("XDAA: Server GID (~p) not recognized", [ServerGID]),
                         {error, "XDAA: Server GID not recognized"}
         end.
@@ -210,9 +153,9 @@ xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKey, ClientECDHEPrivKey) ->
         DHSharedSecret = enacl:curve25519_scalarmult(ClientECDHEPrivKey, ServerECDHEPubKey),
         lager:debug("Got shared-secret:~p, starting TLS handshake...", [DHSharedSecret]),
         DHSharedSecretSwapped = reverse_bytes(DHSharedSecret),
-        xdaa_tls_connect(TCPSocket, DHSharedSecretSwapped).
+        tls_connect(TCPSocket, DHSharedSecretSwapped).
 
-xdaa_tls_connect(TCPSocket, DHSharedSecretSwapped) ->
+tls_connect(TCPSocket, DHSharedSecretSwapped) ->
         SSLOptions = [{ciphers, [{psk, aes_256_gcm, null, sha384}]},
                       {psk_identity, "id"},
                       {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<DHSharedSecretSwapped/binary>>}}],
@@ -232,16 +175,3 @@ reverse_bytes(Input) ->
         Size = size(Input),
         <<AsLittle:Size/little-unit:8>> = Input,
         <<AsLittle:Size/big-unit:8>>.
-
-parse_group_key_file_line(Line) ->
-        case string:tokens(Line, ",\n\r") of
-                [GIDRaw,PublicKeyRaw,PrivateKeyRaw] ->
-                        %% My own info
-                        {list_to_binary(GIDRaw),
-                         list_to_integer(PublicKeyRaw, 16),
-                         list_to_integer(PrivateKeyRaw, 16)};
-                [GIDRaw,PublicKeyRaw] ->
-                        %% Server info
-                        {list_to_binary(GIDRaw),
-                         list_to_integer(PublicKeyRaw, 16)}
-        end.

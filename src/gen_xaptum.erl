@@ -170,7 +170,18 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
   end.
 
 connect(Host, Port, _ClientIp) ->
-  xdaa:start(Host, Port).
+  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = group_keys_parsing:get_group_keys(),
+
+  case gen_tcp:connect(Host,
+                       Port, 
+  	               [binary, {active, false}, {packet, 0}, {keepalive, true}, {nodelay, true}]) of
+    {ok, TCPSocket} ->
+      lager:debug("TCP connection established with host:~p on port:~p", [Host, Port]),
+      xdaa:start(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey);
+    {error, Reason} ->
+      lager:warning("Error making TCP connection: ~p", [Reason]),
+      {error, Reason}
+  end.
 
 receive_request_raw(Socket) ->
   receive_request_raw(Socket, 50000).
