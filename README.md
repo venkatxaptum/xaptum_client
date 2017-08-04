@@ -29,6 +29,9 @@ concurrently.
 
 To test sending messages to preconfigured queues:
   
+1. Set the `group_keys_file` variable in `sys.config` to the location of the `group_keys.csv` file
+provided by Xaptum.
+
 1. Set the environment variables `XAPTUM_DEV_GUID`, `XAPTUM_DEV_USER`, and
 `XAPTUM_DEV_TOKEN` with device credentials issued by Xaptum.
   
@@ -56,6 +59,9 @@ results in the subscriber receiving the following message
 
 To test receiving messages from device queues and sending messages to a device:
  
+1. Set the `group_keys_file` variable in `sys.config` to the location of the `group_keys.csv` file
+provided by Xaptum.
+
 1. Set the environment variables `XAPTUM_SUB_GUID`, `XAPTUM_SUB_USER`, and
  `XAPTUM_SUB_TOKEN` with subscriber credentials issued by Xaptum. Set
  `XAPTUM_SUB_QUEUE` to indicate the queue on which this subscriber should
