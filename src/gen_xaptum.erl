@@ -29,7 +29,7 @@
 
 -include("../include/definitions.hrl").
 
--record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data}).
+-record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data, gid, my_dsa_priv_key, server_dsa_pub_key}).
 
 -callback on_message(From :: pid(), Msg :: binary()) -> Void :: any().
 -callback on_disconnect(From :: pid()) -> Void :: any().
@@ -63,12 +63,19 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
   {ok, XaptumPort} = application:get_env(xaptum_port),
   {ok, LocalIp} = application:get_env(local_ip),
   {ok, Handler} = application:get_env(message_handler),
+  {ok, GroupKeysFileName} = application:get_env(group_keys_file),
+
+  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = group_keys_parsing:get_group_keys(GroupKeysFileName),
+
   State#state{
     creds = Creds#creds{guid = convert_from_Ipv6Text(Guid), user = base64:decode(User), token = base64:decode(Token)},
     xaptum_host = XaptumHost,
     xaptum_port = XaptumPort,
     client_ip = LocalIp,
-    handler = Handler}.
+    handler = Handler,
+    gid = GID,
+    my_dsa_priv_key = MyDSAPrivKey,
+    server_dsa_pub_key = ServerDSAPubKey}.
 
 handle_call({set_meta, MetaData}, _From, State) ->
   {reply, ok, State#state{meta_data = MetaData}};
@@ -113,12 +120,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type, handler = Handler} = State) ->
+authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type, handler = Handler, gid = GID, my_dsa_priv_key = MyDSAPrivKey, server_dsa_pub_key = ServerDSAPubKey} = State) ->
   lager:info("Authenticating ~p with credentials ~p", [Type, Info]),
 
   AuthRequest = Type:generate_auth_request(Info),
 
-  case connect(Host, Port, ClientIp) of
+  case connect(Host, Port, ClientIp, GID, MyDSAPrivKey, ServerDSAPubKey) of
     {ok, Socket} ->
       lager:info("Connected to ~p:~b from ~p", [Host, Port, Socket]),
       ssl:send(Socket, AuthRequest),
@@ -169,9 +176,7 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
       gen_server:cast(ParentPid, authenticate)
   end.
 
-connect(Host, Port, _ClientIp) ->
-  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = group_keys_parsing:get_group_keys(),
-
+connect(Host, Port, ClientIp, GID, MyDSAPrivKey, ServerDSAPubKey) ->
   case gen_tcp:connect(Host,
                        Port, 
   	               [binary, {active, false}, {packet, 0}, {keepalive, true}, {nodelay, true}]) of

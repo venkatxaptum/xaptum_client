@@ -9,13 +9,12 @@
 %%%-------------------------------------------------------------------
 
 -module(group_keys_parsing).
--export([get_group_keys/0]).
+-export([get_group_keys/1]).
 
-get_group_keys() ->
-        open_file().
+get_group_keys(GroupKeysFileName) ->
+        open_file(GroupKeysFileName).
 
-open_file() ->
-        {ok, GroupKeysFileName} = application:get_env(group_keys_file),
+open_file(GroupKeysFileName) ->
         case file:open(GroupKeysFileName, [read]) of
                 {ok, GroupKeysFile} ->
                         ignore_first_line(GroupKeysFile);
