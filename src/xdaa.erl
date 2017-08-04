@@ -32,8 +32,7 @@ group_keys_open_file(Host, Port) ->
 
 group_keys_ignore_first_line(GroupKeysFile, Host, Port) ->
         case file:read_line(GroupKeysFile) of
-                %% TODO Explore line-ending issues
-                {ok, "gid,public,private\n"} ->
+                {ok, "gid,public,private" ++ _} ->
                         group_keys_get_my_info(GroupKeysFile, Host, Port);
                 {ok, FirstLine} ->
                         exit("XDAA: Unexpected first line in group keys file: ~p", [FirstLine]);
