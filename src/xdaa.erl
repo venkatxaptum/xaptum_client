@@ -88,15 +88,12 @@ xdaa_wait_on_server_key_exchange(TCPSocket, GID, ServerSigLength, ClientNonce, M
                         {error, Reason}
         end.
 
-xdaa_validate_server_gid(TCPSocket, GID, ServerGID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
-        case string:equal(ServerGID, GID) of
-                true ->
-                        lager:debug("Server GID (~p) accepted", [ServerGID]),
-                        xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey);
-                false ->
-                        lager:info("XDAA: Server GID (~p) not recognized", [ServerGID]),
-                        {error, "XDAA: Server GID not recognized"}
-        end.
+xdaa_validate_server_gid(TCPSocket, GID, GID, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
+        lager:debug("Server GID (~p) accepted", [GID]),
+        xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey);
+xdaa_validate_server_gid(_, _, NonMatchingServerGID, _, _, _, _, _, _) ->
+        lager:info("XDAA: Server GID (~p) not recognized", [NonMatchingServerGID]),
+        {error, "XDAA: Server GID not recognized"}.
 
 xdaa_validate_server_signature(TCPSocket, ServerDSAPubKey, ServerNonce, ServerECDHEPubKeySwapped, ServerSig, ClientNonce, MyDSAPrivKey) ->
         SigStruct = <<ServerECDHEPubKeySwapped/binary, ClientNonce/binary>>,
