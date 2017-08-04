@@ -19,7 +19,8 @@ open_file(GroupKeysFileName) ->
                 {ok, GroupKeysFile} ->
                         ignore_first_line(GroupKeysFile);
                 {error, Reason} ->
-                        exit("XDAA: Error opening group keys file \"~p\": ~p", [GroupKeysFileName, Reason])
+                        lager:error("XDAA: Error opening group keys file \"~p\": ~p", [GroupKeysFileName, Reason]),
+                        exit("XDAA: Error opening group keys file")
         end.
 
 ignore_first_line(GroupKeysFile) ->
@@ -31,7 +32,8 @@ ignore_first_line(GroupKeysFile) ->
                 eof ->
                         exit("XDAA: Empty group keys file!");
                 {error, Reason} ->
-                        exit("XDAA: Error reading first line in group keys file: ~p", [Reason])
+                        lager:error("XDAA: Error reading first line in group keys file: ~p", [Reason]),
+                        exit("XDAA: Error reading first line in group keys file")
         end.
 
 parse_keys_line(GroupKeysFile) ->
@@ -46,8 +48,10 @@ parse_keys_line(GroupKeysFile) ->
 
                         {ok, GID, MyDSAPrivKey, ServerDSAPubKey};
                 eof ->
+                        lager:error("XDAA: Group keys file has no keys!"),
                         exit("XDAA: Group keys file has no keys!");
                 {error, Reason} ->
-                        exit("XDAA: Error reading line in group keys file: ~p", [Reason])
+                        lager:error("XDAA: Error reading line in group keys file: ~p", [Reason]),
+                        exit("XDAA: Error reading line in group keys file")
         end.
 
