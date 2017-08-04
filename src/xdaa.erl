@@ -48,28 +48,28 @@ xdaa_wait_on_server_key_exchange_header(TCPSocket, GID, ClientNonce, MyDSAPrivKe
                 } ->
                         lager:debug("Received XDAA ServerKeyExchangeHeader with SigLength:~p", [ServerSigLength]),
                         xdaa_wait_on_server_key_exchange(TCPSocket, GID, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPubKey);
-                {ok, <<?XDAA_VERSION:8,
-                       ServerGIDLength:16/big,
-                       ServerNonceLength:16/big,
-                       ServerECDHEPubKeyLength:16/big,
-                       ServerSigLength:16/big>>
-                } ->
-                        lager:warning("XDAA: Received ServerKeyExchange header with incorrect lengths - " ++
-                                        "GIDLength:~p(not ~p), NonceLength:~p(not ~p), PubKeyLength:~p(not ~p), and SigLength:~p",
-                                      [ServerGIDLength, ?XDAA_GID_LENGTH, ServerNonceLength, ?XDAA_NONCE_LENGTH, ServerECDHEPubKeyLength, ?XDAA_ECDHE_PUB_KEY_LENGTH, ServerSigLength]),
-                        {error, "XDAA: Incorrect lengths in ServerKeyExchange header"};
-                {ok, <<Version:8,
-                       _/binary>>
-                } ->
-                        lager:warning("XDAA: Received ServerKeyExchange header with unsupported version: ~p(not ~p)", [Version, ?XDAA_VERSION]),
-                        {error, "XDAA: Unsupported version in ServerKeyExchange header"};
-                {ok, _} ->
-                        lager:warning("XDAA: Received mal-formed ServerKeyExchange header", []),
-                        {error, "XDAA: Mal-formed ServerKeyExchange header"};
+                {ok, InvalidKeyExchangeHeaderPacket} ->
+                        xdaa_handle_invalid_key_exchange_header(InvalidKeyExchangeHeaderPacket);
                 {error, Reason} ->
                         lager:warning("XDAA: Error receiving ServerKeyExchange header: ~p", [Reason]),
                         {error, Reason}
         end.
+
+xdaa_handle_invalid_key_exchange_header(<<?XDAA_VERSION:8,
+                                        ServerGIDLength:16/big,
+                                        ServerNonceLength:16/big,
+                                        ServerECDHEPubKeyLength:16/big,
+                                        ServerSigLength:16/big>>) ->
+        lager:warning("XDAA: Received ServerKeyExchange header with incorrect lengths - " ++
+                         "GIDLength:~p(not ~p), NonceLength:~p(not ~p), PubKeyLength:~p(not ~p), and SigLength:~p",
+                      [ServerGIDLength, ?XDAA_GID_LENGTH, ServerNonceLength, ?XDAA_NONCE_LENGTH, ServerECDHEPubKeyLength, ?XDAA_ECDHE_PUB_KEY_LENGTH, ServerSigLength]),
+        {error, "XDAA: Incorrect lengths in ServerKeyExchange header"};
+xdaa_handle_invalid_key_exchange_header(<<Version:8, _/binary>>) ->
+        lager:warning("XDAA: Received ServerKeyExchange header with unsupported version: ~p(not ~p)", [Version, ?XDAA_VERSION]),
+        {error, "XDAA: Unsupported version in ServerKeyExchange header"};
+xdaa_handle_invalid_key_exchange_header(_) ->
+        lager:warning("XDAA: Received mal-formed ServerKeyExchange header", []),
+        {error, "XDAA: Mal-formed ServerKeyExchange header"}.
 
 xdaa_wait_on_server_key_exchange(TCPSocket, GID, ServerSigLength, ClientNonce, MyDSAPrivKey, ServerDSAPubKey) ->
         case gen_tcp:recv(TCPSocket, ?XDAA_GID_LENGTH+?XDAA_NONCE_LENGTH+?XDAA_ECDHE_PUB_KEY_LENGTH+ServerSigLength, ?TIMEOUT) of
