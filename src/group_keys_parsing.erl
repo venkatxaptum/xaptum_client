@@ -25,10 +25,8 @@ open_file(GroupKeysFileName) ->
 
 ignore_first_line(GroupKeysFile) ->
         case file:read_line(GroupKeysFile) of
-                {ok, "gid,others_public,my_private" ++ _} ->
+                {ok, _} ->
                         parse_keys_line(GroupKeysFile);
-                {ok, FirstLine} ->
-                        exit("XDAA: Unexpected first line in group keys file: ~p", [FirstLine]);
                 eof ->
                         exit("XDAA: Empty group keys file!");
                 {error, Reason} ->
