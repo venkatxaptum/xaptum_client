@@ -140,12 +140,13 @@ xdaa_send_client_key_exchange(TCPSocket, ServerECDHEPubKey, Signature, Signature
                    SignatureLength:16/big,
                    ClientECDHEPubKeySwapped/binary,
                    Signature/binary>>,
-        lager:debug("Sending XDAA ClientKeyExchange (~p)...", [Packet]),
+        lager:debug("XDAA: Sending XDAA ClientKeyExchange (~p)...", [Packet]),
         case gen_tcp:send(TCPSocket, Packet) of
                 ok ->
-                        lager:debug("Sent XDAA ClientKeyExchange (~p) of length ~p octets", [Packet, bit_size(Packet) div 8]),
+                        lager:debug("XDAA: Sent XDAA ClientKeyExchange (~p) of length ~p octets", [Packet, bit_size(Packet) div 8]),
                         xdaa_run_diffie_hellman(TCPSocket, ServerECDHEPubKey, ClientECDHEPrivKey);
                 {error, Reason} ->
+                        lager:warning("XDAA: Error sending ClientKeyExchange: ~p", [Reason]),
                         {error, Reason}
         end.
 
@@ -161,9 +162,10 @@ tls_connect(TCPSocket, DHSharedSecretSwapped) ->
                       {user_lookup_fun, {fun(psk, _, UserState) -> {ok, UserState} end, <<DHSharedSecretSwapped/binary>>}}],
         case ssl:connect(TCPSocket, SSLOptions, ?TIMEOUT) of
                 {ok, SSLSocket} ->
-                        lager:debug("Completed TLS handshake"),
+                        lager:debug("XDAA: Completed TLS handshake"),
                         finish(SSLSocket);
                 {error, Reason} ->
+                        lager:warning("XDAA: Error performing TLS handshake: ~p", [Reason]),
                         {error, Reason}
         end.
 
