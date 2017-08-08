@@ -65,7 +65,7 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
   {ok, Handler} = application:get_env(message_handler),
   {ok, GroupKeysFileName} = application:get_env(group_keys_file),
 
-  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = group_keys_parsing:get_group_keys(GroupKeysFileName),
+  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = xdaa:get_group_keys(GroupKeysFileName),
 
   State#state{
     creds = Creds#creds{guid = convert_from_Ipv6Text(Guid), user = base64:decode(User), token = base64:decode(Token)},

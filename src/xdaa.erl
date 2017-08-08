@@ -7,7 +7,9 @@
 %%% xdaa implements the Xaptum TLS-DAA handshake protocol
 %%%-------------------------------------------------------------------
 -module(xdaa).
--export([start/4]).
+
+%% API
+-export([start/4, get_group_keys/1]).
 
 -define(TIMEOUT, 5000).
 -define(XDAA_VERSION, 0).
@@ -18,8 +20,32 @@
 -define(XDAA_ECDHE_PUB_KEY_LENGTH, 32).
 -define(XDAA_SERVER_KEY_EXCHANGE_HEADER_LENGTH, 9).
 
+%%%===================================================================
+%%% API
+%%%===================================================================
+
 start(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey) ->
         xdaa_send_client_hello(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey).
+
+get_group_keys(GroupKeysFileName) ->
+        {ok, GroupKeysFile} = file:open(GroupKeysFileName, [read]),
+
+        %% Ignore first line of file.
+        {ok, _} = file:read_line(GroupKeysFile),
+
+        {ok, Line} = file:read_line(GroupKeysFile),
+        [GIDRaw,OthersPublicKeyRaw,MyPrivateKeyRaw] = string:tokens(Line, ",\n\r"),
+
+        file:close(GroupKeysFile),
+
+        {ok,
+         list_to_binary(GIDRaw),
+         list_to_integer(MyPrivateKeyRaw, 16),
+         list_to_integer(OthersPublicKeyRaw, 16)}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
 
 xdaa_send_client_hello(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey) ->
         ClientNonce = enacl:randombytes(?XDAA_NONCE_LENGTH),
