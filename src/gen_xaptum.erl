@@ -29,7 +29,7 @@
 
 -include("../include/definitions.hrl").
 
--record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data}).
+-record(state, {xaptum_host, xaptum_port, client_ip, socket, type, creds, handler, meta_data, gid, my_dsa_priv_key, server_dsa_pub_key}).
 
 -callback on_message(From :: pid(), Msg :: binary()) -> Void :: any().
 -callback on_disconnect(From :: pid()) -> Void :: any().
@@ -63,12 +63,19 @@ init_state(#state{creds = #creds{guid = Guid, user = User, token = Token} = Cred
   {ok, XaptumPort} = application:get_env(xaptum_port),
   {ok, LocalIp} = application:get_env(local_ip),
   {ok, Handler} = application:get_env(message_handler),
+  {ok, GroupKeysFileName} = application:get_env(group_keys_file),
+
+  {ok, GID, MyDSAPrivKey, ServerDSAPubKey} = xdaa:get_group_keys(GroupKeysFileName),
+
   State#state{
     creds = Creds#creds{guid = convert_from_Ipv6Text(Guid), user = base64:decode(User), token = base64:decode(Token)},
     xaptum_host = XaptumHost,
     xaptum_port = XaptumPort,
     client_ip = LocalIp,
-    handler = Handler}.
+    handler = Handler,
+    gid = GID,
+    my_dsa_priv_key = MyDSAPrivKey,
+    server_dsa_pub_key = ServerDSAPubKey}.
 
 handle_call({set_meta, MetaData}, _From, State) ->
   {reply, ok, State#state{meta_data = MetaData}};
@@ -86,11 +93,11 @@ handle_cast(receive_message, State) ->
 handle_cast({send_message, Payload, DestinationIp}, #state{socket = Socket, creds = Creds, type = xaptum_subscriber} = State) ->
   Guid = convert_from_Ipv6Text(DestinationIp),
   DDSMessage = xaptum_subscriber:generate_message_request(Creds, Payload, Guid),
-  gen_tcp:send(Socket, DDSMessage),
+  ssl:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast({send_message, Payload}, #state{socket = Socket, creds = Creds, type = xaptum_device} = State) ->
   DDSMessage = xaptum_device:generate_message_request(Creds, Payload),
-  gen_tcp:send(Socket, DDSMessage),
+  ssl:send(Socket, DDSMessage),
   {noreply, State};
 handle_cast(_Other, State) ->
   lager:warning("Don't know how to handle_cast(~p, ~p)", [_Other, State]),
@@ -103,7 +110,7 @@ handle_info(_Info, State) ->
 terminate(_Reason, #state{socket = undefined} = State) ->
   ok;
 terminate(_Reason, #state{socket = Socket} = State) when is_port(Socket)->
-  gen_tcp:close(Socket),
+  ssl:close(Socket),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -113,15 +120,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type, handler = Handler} = State) ->
+authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp, creds = Info,  type = Type, handler = Handler, gid = GID, my_dsa_priv_key = MyDSAPrivKey, server_dsa_pub_key = ServerDSAPubKey} = State) ->
   lager:info("Authenticating ~p with credentials ~p", [Type, Info]),
 
   AuthRequest = Type:generate_auth_request(Info),
 
-  case connect(Host, Port, ClientIp) of
+  case connect(Host, Port, ClientIp, GID, MyDSAPrivKey, ServerDSAPubKey) of
     {ok, Socket} ->
       lager:info("Connected to ~p:~b from ~p", [Host, Port, Socket]),
-      gen_tcp:send(Socket, AuthRequest),
+      ssl:send(Socket, AuthRequest),
       case receive_request_raw(Socket, 100000) of
         {ok, ?AUTH_RES, ?SESSION_TOKEN_SIZE, <<SessionToken:?SESSION_TOKEN_SIZE/bytes>>} ->
           lager:info("Received AUTH_RES with SessionToken ~p", [SessionToken]),
@@ -142,7 +149,7 @@ authenticate(#state{xaptum_host = Host, xaptum_port = Port, client_ip = ClientIp
 start_message_receiver(#state{socket = Socket, creds = #creds{session_token = SessionToken}} = State) ->
   lager:info("Entering receive_control_message loop with Socket ~p and SessionToken ~p...", [Socket, SessionToken]),
   Pid = spawn(?MODULE, receive_message, [self(), State]),
-  gen_tcp:controlling_process(Socket, Pid).
+  ssl:controlling_process(Socket, Pid).
 
 receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token = SessionToken}, type = Type, handler = Handler} = State) ->
   case receive_request_raw(Socket, 30000) of
@@ -158,28 +165,36 @@ receive_message(ParentPid, #state{socket = Socket, creds = #creds{session_token 
       receive_message(ParentPid, State);
     {error, Error} ->
       lager:error("Didn't receive message due to error ~p... Resetting the connection...", [Error]),
-        catch gen_tcp:close(Socket),
+        catch ssl:close(Socket),
       timer:sleep(5000),
       Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate);
     Other -> lager:error("Received unexpected response: ~p", [Other]),
-        catch gen_tcp:close(Socket),
+        catch ssl:close(Socket),
       timer:sleep(5000),
       Handler:on_disconnect(ParentPid),
       gen_server:cast(ParentPid, authenticate)
   end.
 
-connect(Host, Port, _ClientIp) ->
-  gen_tcp:connect(Host, Port,
-    [binary, {active, false}, {reuseaddr, true}, {packet, 0}, {keepalive, true}, {nodelay, true}]).
+connect(Host, Port, ClientIp, GID, MyDSAPrivKey, ServerDSAPubKey) ->
+  case gen_tcp:connect(Host,
+                       Port, 
+  	               [binary, {active, false}, {packet, 0}, {keepalive, true}, {nodelay, true}]) of
+    {ok, TCPSocket} ->
+      lager:debug("TCP connection established with host:~p on port:~p", [Host, Port]),
+      xdaa:start(TCPSocket, GID, MyDSAPrivKey, ServerDSAPubKey);
+    {error, Reason} ->
+      lager:warning("Error making TCP connection: ~p", [Reason]),
+      {error, Reason}
+  end.
 
 receive_request_raw(Socket) ->
   receive_request_raw(Socket, 50000).
 
 receive_request_raw(Socket, Timeout) ->
-  case gen_tcp:recv(Socket, 4, Timeout) of
+  case ssl:recv(Socket, 4, Timeout) of
     {ok, <<?DDS_MARKER:8, ReqType:8, PayloadSize:16>>} ->
-      case gen_tcp:recv(Socket, PayloadSize, 20000) of
+      case ssl:recv(Socket, PayloadSize, 20000) of
         {ok, Payload} ->
           {ok, ReqType, PayloadSize, Payload};
         {error, Error} ->

@@ -6,10 +6,13 @@
   {applications,
    [kernel,
     stdlib,
-     lager
+     lager,
+    crypto,
+    ssl,
+    enacl
    ]},
   {env,[]},
-  {modules, [gen_xaptum, xaptum_device, xaptum_subscriber]},
+  {modules, [gen_xaptum, xaptum_device, xaptum_subscriber, xdaa]},
 
   {contributors, []},
   {licenses, []},
