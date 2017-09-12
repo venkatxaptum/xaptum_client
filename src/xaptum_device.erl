@@ -21,8 +21,10 @@
   start/4,
   set_meta_data/1,
   set_meta_data/2,
+  set_meta_data/3,
   get_meta_data/0,
   get_meta_data/1,
+  get_meta_data/2,
   send_message/1,
   send_message/2,
   populate_credentials/3,
@@ -46,11 +48,18 @@ set_meta_data(MetaData)->
 set_meta_data(RegName, MetaData) ->
   gen_server:call(RegName, {set_meta, MetaData}).
 
+set_meta_data(RegName, MetaData, Timeout)->
+  gen_server:call(RegName, {set_meta, MetaData}, Timeout).
+
 get_meta_data()->
   gen_server:call(?MODULE, get_meta).
 
 get_meta_data(RegName) ->
   gen_server:call(RegName, get_meta).
+
+get_meta_data(RegName, Timeout)->
+  gen_server:call(RegName, get_meta, Timeout).
+
 
 %% When multiple devices are created on the fly, need to identify device by unique id when sending a message
 %% Guid (= Ipv6 address) of the device is the initial reg name.
