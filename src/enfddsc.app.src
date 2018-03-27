@@ -1,0 +1,20 @@
+{application, 'enfddsc',
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {'enfddsc_app', []}},
+  {applications,
+   [kernel,
+    stdlib,
+    lager,
+    crypto,
+    ssl,
+    enacl
+   ]},
+  {env,[]},
+  {modules, [gen_xaptum, xaptum_device]},
+
+  {contributors, []},
+  {licenses, []},
+  {links, []}
+ ]}.

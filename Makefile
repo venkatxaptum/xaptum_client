@@ -1,6 +1,6 @@
 BASEDIR = $(shell pwd)
 REBAR = rebar3
-APPNAME = xaptum_client
+APPNAME = enfddsc
 RELPATH = _build/default/rel/$(APPNAME)
 BUILDDIR = _build
 APPVSN = 1.0
