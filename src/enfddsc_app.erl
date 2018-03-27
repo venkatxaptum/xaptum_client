@@ -23,10 +23,15 @@
 -behaviour(supervisor).
 
 %% Supervisor callbacks
--export([init/1]).
+-export([
+	 start_link/0,
+	 init/1
+	]).
+
+-define(SERVER, ?MODULE).
 
 %%====================================================================
-%% application behaviour callbacks
+%% application behaviour implementation
 %%====================================================================
 start(_StartType, _StartArgs) ->
     lager:info("Starting enfddsc application"),
@@ -56,6 +61,13 @@ priv_dir() ->
 	    lager:info("Couldn't find priv dir for the application, using ./priv~n"), "./priv";
 	PrivDir -> filename:absname(PrivDir)
     end.
+
+%%====================================================================
+%% supervisor behaviour implementation
+%%====================================================================
+
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 %%====================================================================
 %% Supervisor callbacks
