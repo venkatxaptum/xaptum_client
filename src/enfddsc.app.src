@@ -9,10 +9,11 @@
     lager,
     crypto,
     ssl,
-    enacl
+    enacl,
+    erltls
    ]},
   {env,[]},
-  {modules, [gen_xaptum, xaptum_device]},
+  {modules, []},
 
   {contributors, []},
   {licenses, []},
