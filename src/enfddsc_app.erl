@@ -56,7 +56,7 @@ get_env(App, EnvVar) ->
     end.
 
 priv_dir() ->
-    case code:priv_dir(?MODULE) of
+    case code:priv_dir(enfddsc) of
 	{error, bad_name} ->
 	    lager:info("Couldn't find priv dir for the application, using ./priv~n"), "./priv";
 	PrivDir -> filename:absname(PrivDir)
@@ -76,6 +76,16 @@ start_link() ->
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
     %% Restart Strategy
-    RestartStrategy = {one_for_one, 4, 3600},
+    RestartStrategy = {one_for_one, 40, 3600},
 
-    {ok, {RestartStrategy, []}}.
+    {ok, App} = get_application(),
+    {ok, Type} = get_env(App, type),
+
+    Child = child_spec(Type),
+
+    {ok, {RestartStrategy, [Child]}}.
+
+child_spec(xaptum_device) ->
+    {xaptum_device, {enfddsc, start_device, []}, permanent, 2000, worker, [enfddsc]};
+child_spec(xaptum_subscriber) ->
+    {xaptum_subscriber, {enfddsc, start_subscriber, []}, permanent, 2000, worker, [enfddsc]}.

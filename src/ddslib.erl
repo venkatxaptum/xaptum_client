@@ -19,7 +19,16 @@
 %%-------------------------------------------------------------------------------------------
 -module(ddslib).
 
--compile(export_all).
+-export([
+	 connect/4,
+	 close/1,
+
+	 send_reg_message/3,
+	 send_control_message/3,
+	 send_pub_req/2,
+	 send_sub_req/3,
+	 recv/1
+]).
 
 -define(TOKEN, <<"abcdefghijklmnopqrstuvwzyz1234567890ABCD">>).
 -define(TYPE, <<0>>).
@@ -71,73 +80,61 @@
 %% DDS Protocol Implementation
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-connect(Host, Port, GID, PrivKey, ServerPubKey) ->
-    {ok, Socket} = gen_tcp:connect(Host, Port, 
-				   [binary, {active, false}, {reuseaddr, true}, {packet, 0}, {keepalive, true}, {nodelay, true}],2000),
-    xdaa:start(Socket, GID, PrivKey, ServerPubKey).
+connect(Host, Port, Certfile, Keyfile) ->
+    erltls:connect(Host, Port, 
+		   [binary, {active, false}, 
+		    {reuseaddr, true}, 
+		    {packet, 0}, 
+		    {keepalive, true}, 
+		    {nodelay, true},
+		    {verify, verify_none},
+		    {fail_if_no_peer_cert, false},
+		    {certfile, Certfile},
+		    {keyfile, Keyfile}
+		   ],2000).
 
-send_activation_req(Client, ActCode) ->
-    %% Create a activation request
-    Size = 36,
-    FixedHeader = <<?DDS_MARKER:8, ?ACT_REQ:8, Size:16>>,
-    VariableHeader = ActCode,
-    Packet = <<FixedHeader/binary, VariableHeader/binary>>,
-    send(Client, Packet).
+send_pub_req(Client, Guid) ->
+    send_req(Client, Guid, ?AUTH_EMP_REQ, <<>>). 
 
-send_auth_req(Client, Guid, User, Tok) ->
-    send_auth_req(Client, Guid, User, Tok, <<>>).
-
-send_auth_req(Client, Guid, User, Tok, Msg) ->
-    send_auth_with_payload(Client, ?AUTH_REG_REQ, Guid, User, Tok, Msg).
-
-send_auth_sub_req(Client, Guid, User, Tok, Queue) ->
-    send_auth_with_payload(Client, ?AUTH_SUB_REQ, Guid, User, Tok, Queue).
-
-send_message(Client, Session, Msg) ->
-    Size = 36 + byte_size(Msg),
-    FixedHeader = <<?DDS_MARKER:8, ?REG_MSG:8, Size:16>>,
-    VariableHeader = Session,
-    Payload = Msg,
-    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
-    send(Client, Packet).
-
-close(Client) ->
-    ssl:close(Client).
-
-send_auth_with_payload(Client, AuthType, Guid, User, Tok, MsgPayload) ->
-    Size = 32 + byte_size(MsgPayload),
-    FixedHeader = <<?DDS_MARKER:8, AuthType:8, Size:16>>,
-    VariableHeader = <<Guid/binary, User/binary, Tok/binary>>,
-    Payload = MsgPayload,
-    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
-    send(Client, Packet).
+send_sub_req(Client, Guid, Queue) ->
+    send_req(Client, Guid, ?AUTH_SUB_REQ, Queue).
 
 send_reg_message(Client, SessionToken, Message) ->
-    Size = 36 + byte_size(Message),
-    FixedHeader = <<?DDS_MARKER:8, ?REG_MSG, Size:16>>,
-    VariableHeader = SessionToken,
-    Payload = Message,
-    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
-    send(Client, Packet).
+    send_message(Client, SessionToken, ?REG_MSG, Message).
 
 send_control_message(Client, SessionToken, Message) ->
+    send_message(Client, SessionToken, ?SIGNAL_MSG, Message).
+
+close(Client) ->
+    erltls:close(Client).
+
+recv(Client) ->
+    {ok, FixedHeader} = erltls:recv(Client, 4, 2000),
+    <<?DDS_MARKER:8, _Type:8, Size:16>> = FixedHeader,
+    {ok, Rest} = erltls:recv(Client, Size, 2000),
+    <<FixedHeader/binary, Rest/binary>>.
+    
+%%=============================================================
+%% Private functions
+%%=============================================================
+send(Client, Packet) ->
+    ok = erltls:send(Client, Packet).
+
+send_req(Client, Guid, Type, ReqPayload) ->
+    Size = 16 + byte_size(ReqPayload),
+    FixedHeader = <<?DDS_MARKER:8, Type:8, Size:16>>,
+    VariableHeader = Guid,
+    Payload = ReqPayload,
+    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
+    send(Client, Packet).
+
+send_message(Client, SessionToken, MsgType, Message) ->
     Size = 36 + byte_size(Message),
-    FixedHeader = <<?DDS_MARKER:8, ?SIGNAL_MSG, Size:16>>,
+    FixedHeader = <<?DDS_MARKER:8, MsgType:8, Size:16>>,
     VariableHeader = SessionToken,
     Payload = Message,
     Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
     send(Client, Packet).
-
-send(Client, Packet) ->
-    ok = ssl:send(Client, Packet).
-
-recv(Client) ->
-    {ok, FixedHeader} = ssl:recv(Client, 4),
-    <<?DDS_MARKER:8, _Type:8, Size:16>> = FixedHeader,
-    {ok, Rest} = ssl:recv(Client, Size),
-    <<FixedHeader/binary, Rest/binary>>.
-    
-
 	    
 	    
     

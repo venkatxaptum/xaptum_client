@@ -28,6 +28,9 @@ console: release
 device-release: id
 	$(REBAR) as device release
 
+device-tar: device-release
+	$(REBAR) as device tar
+
 device-console: device-release
 	$(BASEDIR)/_build/device/rel/$(APPNAME)/bin/$(APPNAME) console
 
@@ -37,8 +40,14 @@ subscriber-release: id
 subscriber-console: subscriber-release
 	$(BASEDIR)/_build/subscriber/rel/$(APPNAME)/bin/$(APPNAME) console
 
+subscriber-tar: subscriber-release
+	$(REBAR) as subscriber tar
+
 dialyzer: test
 	$(REBAR) dialyzer
+
+xref:
+	$(REBAR) as device xref
 
 clean:
 	$(REBAR) clean

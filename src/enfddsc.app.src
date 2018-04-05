@@ -6,9 +6,8 @@
   {applications,
    [kernel,
     stdlib,
+    sasl,
     lager,
-    crypto,
-    ssl,
     enacl,
     erltls
    ]},
