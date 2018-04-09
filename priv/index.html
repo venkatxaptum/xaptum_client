@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+  <title>enfddsc stat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+  <body>
+
+    <div class="w3-container">
+      <div class="w3-row-padding">
+	<div class="w3-col s4">
+	  <span id="sent" class="w3-badge w3-jumbo w3-green w3-padding">00</span>
+
+	</div>
+	<div class="w3-col s4">
+	  <span id="received" class="w3-badge w3-jumbo w3-brown w3-padding">00</span>
+
+	</div>
+      </div>
+
+      <div class="w3-row-padding">
+	<div class="w3-col s4">
+	  <br/>
+	  <div class="w3-tag w3-large w3-green">Sent</div>
+	</div>
+	<div class="w3-col s4">
+	  <br/>
+	  <div class="w3-tag w3-large w3-brown">Received</div>
+	</div>
+      </div>
+    </div>
+
+    <script>
+      function format(n) {
+      var fn = (n >= 100 ? n : ("0" + n).slice(-2));
+      return fn;
+      }
+      function get_stat() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', '/stat');
+      xhr.onload = function() {
+      if (xhr.status === 200) {
+      var obj = JSON.parse(xhr.responseText);
+      var sent = document.getElementById("sent")
+      sent.innerHTML = format(obj.sent)
+
+      var received = document.getElementById("received")
+      received.innerHTML = format(obj.received)
+
+      }
+      };
+      xhr.send();
+      }
+
+
+      window.setInterval(function() {
+      get_stat();
+      }, 1200);
+    </script>
+  </body>
+</html>

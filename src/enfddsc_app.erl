@@ -78,12 +78,23 @@ init([]) ->
     %% Restart Strategy
     RestartStrategy = {one_for_one, 40, 3600},
 
+    %% Create device/subscriber child spec
     {ok, App} = get_application(),
     {ok, Type} = get_env(App, type),
-
     Child = child_spec(Type),
 
-    {ok, {RestartStrategy, [Child]}}.
+    %% Create elli child spec
+    {ok, ElliPort} = get_env(App, stat_port), 
+    ElliOpts = [{callback, enfddsc_http}, {port, ElliPort}],
+    Elli = {
+        enfddsc_http,
+        {elli, start_link, [ElliOpts]},
+        permanent,
+        5000,
+        worker,
+        [elli]},
+
+    {ok, {RestartStrategy, [Child, Elli]}}.
 
 child_spec(xaptum_device) ->
     {xaptum_device, {enfddsc, start_device, []}, permanent, 2000, worker, [enfddsc]};

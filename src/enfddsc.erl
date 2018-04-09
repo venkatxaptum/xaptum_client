@@ -12,7 +12,9 @@
 
 	 stop/1,
 	 send_message/3,
-	 send_message/2
+	 send_message/2,
+
+	 get_message_count/1
 	]).
 
 %% export gen_server callbacks
@@ -34,10 +36,9 @@
 	 priv_dir/0
 ]).
 
--record(state, {ip, type, session_token, ddsc, queue, certfile, keyfile, control_ipv6}).
+-include("definitions.hrl").
 
--define(DEVICE, device).
--define(SUBSCRIBER, subscriber).
+-record(state, {ip, type, session_token, ddsc, queue, certfile, keyfile, control_ipv6, sent = 0, received = 0}).
 
 %%====================================
 %% API
@@ -79,6 +80,9 @@ send_message(Server, Dest, Msg) when is_list(Dest), is_binary(Msg) ->
 
 stop(Server) ->
     gen_server:cast(Server, stop).
+
+get_message_count(Server) ->
+    gen_server:call(Server, get_message_count).
 
 
 start_test_device() ->
@@ -151,13 +155,12 @@ handle_info({ssl_closed, _Socket}, State) ->
     %% Relaunch 
     handle_info(create_ddsc, State);
 
-handle_info({ssl, Socket, _RawData}, #state{type = T, control_ipv6 = ControlIp} = State) ->
+handle_info({ssl, Socket, _RawData}, #state{type = T, control_ipv6 = ControlIp, received = R, sent = S} = State) ->
     %% Log dds message packets
-    lager:info("~p got ~p", [T, _RawData]),
-
-    %% send control message if you are a device
+    lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
     case T of
 	?SUBSCRIBER ->
+	    %% Send control message
 	    Control = <<"zigzaggy">>,
 	    ?MODULE:send_message(self(), ControlIp, Control);
 
@@ -165,28 +168,31 @@ handle_info({ssl, Socket, _RawData}, #state{type = T, control_ipv6 = ControlIp} 
 	    ignore
     end,
     erltls:setopts(Socket, [{active, once}]),
-    {noreply, State};
+    {noreply, State#state{received = R+1}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
 
 
-handle_cast({send, Msg}, #state{ddsc = C, session_token = ST} = State) ->
+handle_cast({send, Msg}, #state{ddsc = C, session_token = ST, sent = S} = State) ->
     %% send a regular message
     ddslib:send_reg_message(C, ST, Msg),
-    {noreply, State};
+    {noreply, State#state{sent = S+1}};
 
-handle_cast({send, Dest, Msg}, #state{ddsc = C, session_token = ST} = State) ->
+handle_cast({send, Dest, Msg}, #state{ddsc = C, session_token = ST, sent = S} = State) ->
     %% send a control message
     ControlMessage = <<Dest/binary,Msg/binary>>,
     ddslib:send_control_message(C, ST, ControlMessage),
-    {noreply, State};
+    {noreply, State#state{sent = S+1}};
 
 handle_cast(stop, State) ->
     {stop, normal, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_call(get_message_count, _From, #state{type = T, sent = S, received = R} = State) ->
+    Reply = {T, S, R},
+    {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.

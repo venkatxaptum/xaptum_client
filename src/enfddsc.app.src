@@ -9,7 +9,8 @@
     sasl,
     lager,
     enacl,
-    erltls
+    erltls,
+    elli
    ]},
   {env,[]},
   {modules, []},
