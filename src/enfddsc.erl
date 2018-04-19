@@ -38,24 +38,30 @@
 
 -include("definitions.hrl").
 
--record(state, {ip, type, session_token, ddsc, queue, certfile, keyfile, control_ipv6, sent = 0, received = 0}).
+-record(state, {ip, type, session_token, ddsc, queue, certfile, keyfile, sent = 0, received = 0}).
 
 %%====================================
 %% API
 %%====================================
 start_device() ->
     {ok, App} = enfddsc:get_application(),
-    {ok, DeviceIp} = enfddsc:get_env(App, ipv6),
+%%    {ok, DeviceIp} = enfddsc:get_env(App, ipv6),
+    {ok, IpFile} = enfddsc:get_env(App, ipv6_file),
     {ok, CertFile} = enfddsc:get_env(App, cert_file),
     {ok, KeyFile} = enfddsc:get_env(App, key_file),
+
+    DeviceIp = read_ipv6_file(IpFile),
     start_device(DeviceIp, CertFile, KeyFile).
 
 start_subscriber() ->
     {ok, App} = enfddsc:get_application(),
-    {ok, SubIp} = enfddsc:get_env(App, ipv6),
+%%    {ok, SubIp} = enfddsc:get_env(App, ipv6),
+    {ok, IpFile} = enfddsc:get_env(App, ipv6_file),
     {ok, Queue} = enfddsc:get_env(App, dds_queue),
     {ok, CertFile} = enfddsc:get_env(App, cert_file),
     {ok, KeyFile} = enfddsc:get_env(App, key_file),
+
+    SubIp = read_ipv6_file(IpFile),
     start_subscriber(SubIp, Queue, CertFile, KeyFile).
 
 start_device(DeviceIp, Certfile, Keyfile) when is_list(DeviceIp) ->
@@ -121,9 +127,7 @@ init([{?DEVICE, DIP, CF, KF}]) ->
 
 init([{?SUBSCRIBER, SIP, Q, CF, KF}]) ->
     self() ! create_ddsc,
-    {ok, App} = enfddsc:get_application(),
-    {ok, ControlIp} = enfddsc:get_env(App, control_ipv6),
-    {ok, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q, certfile = CF, keyfile = KF, control_ipv6 = ControlIp}}.
+    {ok, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q, certfile = CF, keyfile = KF}}.
 
 terminate(_Reason, #state{ddsc = undefined} = _State) ->
     ok;
@@ -145,8 +149,8 @@ handle_info(create_ddsc, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q, keyfile
     NewState = State#state{ddsc = C, session_token = ST},
     {noreply, NewState};
 
-handle_info(send_loop, #state{type = ?DEVICE} = State) ->
-    Msg = <<"buzzwigs">>,
+handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
+    Msg = DIP, %%<<"buzzwigs">>,
     ?MODULE:send_message(self(), Msg),
     send_loop(),
     {noreply, State};
@@ -155,14 +159,17 @@ handle_info({ssl_closed, _Socket}, State) ->
     %% Relaunch 
     handle_info(create_ddsc, State);
 
-handle_info({ssl, Socket, _RawData}, #state{type = T, control_ipv6 = ControlIp, received = R, sent = S} = State) ->
+handle_info({ssl, Socket, _RawData}, #state{type = T, received = R, sent = S} = State) ->
     %% Log dds message packets
     lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
+    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, Rest/binary>> = _RawData,
     case T of
 	?SUBSCRIBER ->
 	    %% Send control message
 	    Control = <<"zigzaggy">>,
-	    ?MODULE:send_message(self(), ControlIp, Control);
+	    OriginalMsg = base64:decode(extract_mdxp_payload(Rest)),
+	    DestIp = ipv6_binary_to_text(OriginalMsg),	    
+	    ?MODULE:send_message(self(), DestIp, Control);
 
 	?DEVICE ->
 	    ignore
@@ -201,10 +208,25 @@ handle_call(_Msg, _From, State) ->
 %%====================================
 %% Private functions
 %%====================================
+extract_mdxp_payload(Mdxp) ->
+    {match, [Msg]} = re:run(Mdxp, ".*originalPayload\"\s*:\s*\"(.*)\".*$", [{capture, [1], list}, ungreedy]),
+    list_to_binary(Msg).
+
+read_ipv6_file(IpFile) ->
+    {ok, File} = file:read_file(IpFile),
+    <<Ip:32/binary, _Rest/binary>> = File,
+    <<A:4/binary, B:4/binary, C:4/binary, D:4/binary, E:4/binary, F:4/binary, G:4/binary, H:4/binary>> = Ip,
+    StrictIp = <<A/binary, ":", B/binary, ":", C/binary, ":", D/binary, ":", E/binary, ":", F/binary, ":", G/binary, ":", H/binary>>,
+    binary_to_list(StrictIp).
+    
 ipv6_to_binary(IpText) ->
     {ok, Ip} = inet:parse_ipv6_address(IpText),
     List = [ <<I:16>> || I <- tuple_to_list(Ip) ],
     iolist_to_binary(List).
+
+ipv6_binary_to_text(IpBin) ->
+    <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>> = IpBin,
+    inet:ntoa({A,B,C,D,E,F,G,H}).
 
 create_dds_device(Ip, CF, KF) ->
     %% connect to broker
