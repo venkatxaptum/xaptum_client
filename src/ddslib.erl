@@ -20,13 +20,11 @@
 -module(ddslib).
 
 -export([
-	 connect/4,
-	 close/1,
 
-	 send_reg_message/3,
-	 send_control_message/3,
-	 send_pub_req/2,
-	 send_sub_req/3,
+	 build_reg_message/2,
+	 build_control_message/2,
+	 build_init_pub_req/1,
+	 build_init_sub_req/2,
 	 recv/1
 ]).
 
@@ -80,33 +78,17 @@
 %% DDS Protocol Implementation
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-connect(Host, Port, Certfile, Keyfile) ->
-    erltls:connect(Host, Port, 
-		   [binary, {active, false}, 
-		    {reuseaddr, true}, 
-		    {packet, 0}, 
-		    {keepalive, true}, 
-		    {nodelay, true},
-		    {verify, verify_none},
-		    {fail_if_no_peer_cert, false},
-		    {certfile, Certfile},
-		    {keyfile, Keyfile}
-		   ],2000).
+build_init_pub_req(Guid) ->
+    build_req(Guid, ?AUTH_EMP_REQ, <<>>). 
 
-send_pub_req(Client, Guid) ->
-    send_req(Client, Guid, ?AUTH_EMP_REQ, <<>>). 
+build_init_sub_req(Guid, Queue) ->
+    build_req(Guid, ?AUTH_SUB_REQ, Queue).
 
-send_sub_req(Client, Guid, Queue) ->
-    send_req(Client, Guid, ?AUTH_SUB_REQ, Queue).
+build_reg_message(SessionToken, Message) ->
+    build_message(SessionToken, ?REG_MSG, Message).
 
-send_reg_message(Client, SessionToken, Message) ->
-    send_message(Client, SessionToken, ?REG_MSG, Message).
-
-send_control_message(Client, SessionToken, Message) ->
-    send_message(Client, SessionToken, ?SIGNAL_MSG, Message).
-
-close(Client) ->
-    erltls:close(Client).
+build_control_message(SessionToken, Message) ->
+    build_message(SessionToken, ?SIGNAL_MSG, Message).
 
 recv(Client) ->
     {ok, FixedHeader} = erltls:recv(Client, 4, 2000),
@@ -117,24 +99,21 @@ recv(Client) ->
 %%=============================================================
 %% Private functions
 %%=============================================================
-send(Client, Packet) ->
-    ok = erltls:send(Client, Packet).
-
-send_req(Client, Guid, Type, ReqPayload) ->
+build_req(Guid, Type, ReqPayload) ->
     Size = 16 + byte_size(ReqPayload),
     FixedHeader = <<?DDS_MARKER:8, Type:8, Size:16>>,
     VariableHeader = Guid,
     Payload = ReqPayload,
     Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
-    send(Client, Packet).
+    Packet.
 
-send_message(Client, SessionToken, MsgType, Message) ->
+build_message(SessionToken, MsgType, Message) ->
     Size = 36 + byte_size(Message),
     FixedHeader = <<?DDS_MARKER:8, MsgType:8, Size:16>>,
     VariableHeader = SessionToken,
     Payload = Message,
     Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
-    send(Client, Packet).
+    Packet.
 	    
 	    
     

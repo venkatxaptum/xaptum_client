@@ -7,8 +7,8 @@
 	 start_device/0,
 	 start_subscriber/0,
 
-	 start_device/3,
-	 start_subscriber/4,
+	 start_device/1,
+	 start_subscriber/2,
 
 	 stop/1,
 	 send_message/3,
@@ -26,11 +26,6 @@
 	 code_change/3]).
 
 -export([
-	 start_test_device/0,
-	 start_test_subscriber/0
-]).
-
--export([
 	 get_application/0,
 	 get_env/2,
 	 priv_dir/0
@@ -38,40 +33,34 @@
 
 -include("definitions.hrl").
 
--record(state, {ip, type, session_token, ddsc, queue, certfile, keyfile, sent = 0, received = 0}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init}).
 
 %%====================================
 %% API
 %%====================================
 start_device() ->
     {ok, App} = enfddsc:get_application(),
-%%    {ok, DeviceIp} = enfddsc:get_env(App, ipv6),
     {ok, IpFile} = enfddsc:get_env(App, ipv6_file),
-    {ok, CertFile} = enfddsc:get_env(App, cert_file),
-    {ok, KeyFile} = enfddsc:get_env(App, key_file),
 
     DeviceIp = read_ipv6_file(IpFile),
-    start_device(DeviceIp, CertFile, KeyFile).
+    start_device(DeviceIp).
 
 start_subscriber() ->
     {ok, App} = enfddsc:get_application(),
-%%    {ok, SubIp} = enfddsc:get_env(App, ipv6),
     {ok, IpFile} = enfddsc:get_env(App, ipv6_file),
     {ok, Queue} = enfddsc:get_env(App, dds_queue),
-    {ok, CertFile} = enfddsc:get_env(App, cert_file),
-    {ok, KeyFile} = enfddsc:get_env(App, key_file),
 
     SubIp = read_ipv6_file(IpFile),
-    start_subscriber(SubIp, Queue, CertFile, KeyFile).
+    start_subscriber(SubIp, Queue).
 
-start_device(DeviceIp, Certfile, Keyfile) when is_list(DeviceIp) ->
+start_device(DeviceIp) when is_list(DeviceIp) ->
     DIP = ipv6_to_binary(DeviceIp),
-    gen_server:start_link({local, ?DEVICE}, ?MODULE, [{?DEVICE, DIP, Certfile, Keyfile}], []).
+    gen_enfc:start_link({local, ?DEVICE}, ?MODULE, [{?DEVICE, DIP}], []).
 
-start_subscriber(SubIp, Queue, Certfile, Keyfile) when is_list(SubIp), is_list(Queue) ->
+start_subscriber(SubIp, Queue) when is_list(SubIp), is_list(Queue) ->
     Q = list_to_binary(Queue),
     SIP = ipv6_to_binary(SubIp),
-    gen_server:start_link({local, ?SUBSCRIBER}, ?MODULE, [{?SUBSCRIBER, SIP, Q, Certfile, Keyfile}], []).
+    gen_enfc:start_link({local, ?SUBSCRIBER}, ?MODULE, [{?SUBSCRIBER, SIP, Q}], []).
 
 send_message(Server, Msg) when is_list(Msg) ->
     send_message(Server, list_to_binary(Msg));
@@ -89,23 +78,6 @@ stop(Server) ->
 
 get_message_count(Server) ->
     gen_server:call(Server, get_message_count).
-
-
-start_test_device() ->
-    DeviceIp = "1111:1111:1111:1119::2",
-    Priv = enfddsc_app:priv_dir(),
-    CF = filename:join(Priv, "cert.ip2.pem"),
-    KF = filename:join(Priv, "priv.ip2.pem"),
-    start_device(DeviceIp, CF, KF).
-
-start_test_subscriber() ->
-    SubscriberIp = "1111:1111:1111:1119::1",
-    Queue = "$rr:1111:1111:1111:1119::2",
-    Priv = enfddsc_app:priv_dir(),
-    CF = filename:join(Priv, "cert.ip1.pem"),
-    KF = filename:join(Priv, "priv.ip1.pem"),
-    start_subscriber(SubscriberIp, Queue, CF, KF).
-    
     
 %%====================================
 %% Helper API's
@@ -121,32 +93,28 @@ priv_dir() ->
 %%====================================
 %% callbacks
 %%====================================
-init([{?DEVICE, DIP, CF, KF}]) ->
-    self() ! create_ddsc,
-    {ok, #state{ip = DIP, type = ?DEVICE, certfile = CF, keyfile = KF}};
+init([{?DEVICE, DIP}]) ->
+    self() ! init_session,
+    {ok, #state{ip = DIP, type = ?DEVICE}};
 
-init([{?SUBSCRIBER, SIP, Q, CF, KF}]) ->
-    self() ! create_ddsc,
-    {ok, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q, certfile = CF, keyfile = KF}}.
+init([{?SUBSCRIBER, SIP, Q}]) ->
+    self() ! init_session,
+    {ok, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q}}.
 
-terminate(_Reason, #state{ddsc = undefined} = _State) ->
-    ok;
-terminate(_Reason, #state{ddsc = C} = _State) ->
-    catch ddslib:close(C),
+terminate(_Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-handle_info(create_ddsc, #state{ip = DIP, type = ?DEVICE, keyfile = KF, certfile = CF} = State) ->
-    {ok, C, ST} = create_dds_device(DIP, CF, KF),
-    NewState = State#state{ddsc = C, session_token = ST},
-    send_loop(),
+handle_info(init_session, #state{ip = DIP, type = ?DEVICE} = State) ->
+    ok = create_dds_device(DIP),
+    NewState = State#state{fsm = init},
     {noreply, NewState};
 
-handle_info(create_ddsc, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q, keyfile = KF, certfile = CF} = State) ->
-    {ok, C, ST} = create_dds_subscriber(SIP, Q, CF, KF),
-    NewState = State#state{ddsc = C, session_token = ST},
+handle_info(init_session, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q} = State) ->
+    ok = create_dds_subscriber(SIP, Q),
+    NewState = State#state{fsm = init},
     {noreply, NewState};
 
 handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
@@ -154,15 +122,22 @@ handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
     ?MODULE:send_message(self(), Msg),
     send_loop(),
     {noreply, State};
-    
-handle_info({ssl_closed, _Socket}, State) ->
-    %% Relaunch 
-    handle_info(create_ddsc, State);
 
-handle_info({ssl, Socket, _RawData}, #state{type = T, received = R, sent = S} = State) ->
+handle_info({recv, RawData}, #state{fsm = init, type = Type} = State) ->
+    <<120, _PacketType:8, _Size:16, SessionToken/binary>> = RawData,
+    lager:info("Received Authentication Response"),
+    case Type of
+	?SUBSCRIBER ->
+	    noop;
+	?DEVICE ->
+	    send_loop()
+    end,
+    {noreply, State#state{session_token = SessionToken, fsm = op}};
+    
+handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S} = State) ->
     %% Log dds message packets
     lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
-    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, Rest/binary>> = _RawData,
+    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, Rest/binary>> = RawData,
     case T of
 	?SUBSCRIBER ->
 	    %% Send control message
@@ -174,22 +149,23 @@ handle_info({ssl, Socket, _RawData}, #state{type = T, received = R, sent = S} = 
 	?DEVICE ->
 	    ignore
     end,
-    erltls:setopts(Socket, [{active, once}]),
     {noreply, State#state{received = R+1}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
 
 
-handle_cast({send, Msg}, #state{ddsc = C, session_token = ST, sent = S} = State) ->
+handle_cast({send, Msg}, #state{session_token = ST, sent = S} = State) ->
     %% send a regular message
-    ddslib:send_reg_message(C, ST, Msg),
+    Packet = ddslib:build_reg_message(ST, Msg),
+    ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
-handle_cast({send, Dest, Msg}, #state{ddsc = C, session_token = ST, sent = S} = State) ->
+handle_cast({send, Dest, Msg}, #state{session_token = ST, sent = S} = State) ->
     %% send a control message
-    ControlMessage = <<Dest/binary,Msg/binary>>,
-    ddslib:send_control_message(C, ST, ControlMessage),
+    Control = <<Dest/binary,Msg/binary>>,
+    Packet = ddslib:build_control_message(ST, Control),
+    ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
 handle_cast(stop, State) ->
@@ -228,54 +204,20 @@ ipv6_binary_to_text(IpBin) ->
     <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>> = IpBin,
     inet:ntoa({A,B,C,D,E,F,G,H}).
 
-create_dds_device(Ip, CF, KF) ->
-    %% connect to broker
-    {ok, C} = connect_to_broker(CF, KF),
-    
-    %% Send authentication
-    ddslib:send_pub_req(C, Ip),
+create_dds_device(Ip) ->
+    %% Build authentication
+    PubReq = ddslib:build_init_pub_req(Ip),
+    ok = gen_enfc:send(PubReq),
     lager:info("Sent device authentication Request"),
+    ok.
 
-    %% Get a valid response
-    {ok, SessionToken} = recv_auth_resp(C),
+create_dds_subscriber(Ip, Q) ->
 
-    %% change socket mode to active
-    erltls:setopts(C, [{active, once}]),
-
-    {ok, C, SessionToken}.
-
-create_dds_subscriber(Ip, Q, CF, KF) ->
-    %% connect to broker
-    {ok, C} = connect_to_broker(CF, KF),
-
-    %% Send Authentication Request
-    ddslib:send_sub_req(C, Ip, Q),
+    %% build Authentication Request
+    SubReq = ddslib:build_init_sub_req(Ip, Q),
+    ok = gen_enfc:send(SubReq),
     lager:info("Sent subscriber authentication Request"),
-
-    %% Get an Validate Response
-    {ok, SessionToken} = recv_auth_resp(C),
-
-    %% Change socket mode to active
-    erltls:setopts(C, [{active, once}]),
-
-    {ok, C, SessionToken}.
-
-
-connect_to_broker(CF, KF) ->
-    {ok, App} = enfddsc:get_application(),
-    {ok, Host} = enfddsc:get_env(App, xaptum_host),
-    {ok, Port} = enfddsc:get_env(App, xaptum_port),
-
-    %% Connect to XMB
-    {ok, C} = ddslib:connect(Host, Port, CF, KF),
-    lager:info("Connected to Broker"),
-    {ok, C}.
-
-recv_auth_resp(C) ->
-    Resp = ddslib:recv(C),
-    <<_FixedHeader:4/bytes, SessionToken/binary>> = Resp,
-    lager:info("Received Authentication Response"),
-    {ok, SessionToken}.
+    ok.
 
 send_loop() ->
     erlang:send_after(1000, self(), send_loop).
