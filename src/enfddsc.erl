@@ -110,11 +110,13 @@ code_change(_OldVsn, State, _Extra) ->
 handle_info(init_session, #state{ip = DIP, type = ?DEVICE} = State) ->
     ok = create_dds_device(DIP),
     NewState = State#state{fsm = init},
+    send_init_timeout(),
     {noreply, NewState};
 
 handle_info(init_session, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q} = State) ->
     ok = create_dds_subscriber(SIP, Q),
     NewState = State#state{fsm = init},
+    send_init_timeout(),
     {noreply, NewState};
 
 handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
@@ -133,6 +135,12 @@ handle_info({recv, RawData}, #state{fsm = init, type = Type} = State) ->
 	    send_loop()
     end,
     {noreply, State#state{session_token = SessionToken, fsm = op}};
+
+handle_info(init_timeout, #state{fsm = init} = State) ->
+    {stop, init_timeout, State};
+
+handle_info(init_timeout, #state{fsm = op} = State) ->
+    {noreply, State};
     
 handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S} = State) ->
     %% Log dds message packets
@@ -221,3 +229,6 @@ create_dds_subscriber(Ip, Q) ->
 
 send_loop() ->
     erlang:send_after(1000, self(), send_loop).
+
+send_init_timeout() ->
+    erlang:send_after(2000, self(), init_timeout).
