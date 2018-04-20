@@ -3,5 +3,6 @@
 
 -define(BACNET_PROXY, bacnet_proxy).
 -define(BACNET_CONTROL, bacnet_control).
+-define(IAM, "IAM").
 
 -endif.

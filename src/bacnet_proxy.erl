@@ -112,8 +112,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, received = R
     {noreply, State#state{received = R+1}};
 
 handle_info(heartbeat_loop, #state{ip = DIP, type = ?BACNET_PROXY} = State) ->
-    lager:info("Send IAM-PROXY-IPV6 Heartbeat to control"),
-    Msg = <<"IAM", DIP/binary>>,
+    Msg = <<?IAM, DIP/binary>>,
     ?MODULE:send_message(self(), Msg),
     heartbeat_loop(),
     {noreply, State};

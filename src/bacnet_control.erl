@@ -100,9 +100,8 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, received =
 
     %% If the Original msg matches heartbeat
     case OriginalMsg of
-	<<"IAM", Ip/binary>> ->
+	<<?IAM, Ip/binary>> ->
 	    DestIp = enfddsc:ipv6_binary_to_text(Ip),
-	    lager:info("Heartbeat ~p", [DestIp]),
 	    NewDict = dict:store(DestIp, 1, Dict),
 	    {noreply, State#state{received = R+1, dict = NewDict}};
 
@@ -127,7 +126,7 @@ handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict}
 			   <<Id:64, Tag:64>> = IpBytes,
 			   {ok, Control} = bacnet_utils:build_write_property_request(Id, Tag),
 			   ?MODULE:send_message(self(), Ip, Control),
-			   lager:info("Sending write property request to proxy with Id: ~p, Tag: ~p", [Id, Tag])
+			   lager:info("Sending write property request with Id: ~p, Tag: ~p", [Id, Tag])
 		   end, Ips),
     poll_loop(read_poll),
     {noreply, State};
@@ -137,7 +136,7 @@ handle_info({poll_loop, read_poll}, #state{type = ?BACNET_CONTROL, dict = Dict} 
     lists:foreach( fun(Ip) ->
 			   {ok, Control} = bacnet_utils:build_read_property_request(),
 			   ?MODULE:send_message(self(), Ip, Control),
-			   lager:info("Sending read property request to proxy")
+			   lager:info("Sending read property request")
 		   end, Ips),
     poll_loop(write_poll),
     {noreply, State};
@@ -183,7 +182,7 @@ create_dds_subscriber(Ip, Q) ->
     ok.
 
 poll_loop(Type) ->
-    erlang:send_after(3000, self(), {poll_loop, Type}).
+    erlang:send_after(2500, self(), {poll_loop, Type}).
 
 send_init_timeout() ->
     erlang:send_after(2000, self(), init_timeout).
