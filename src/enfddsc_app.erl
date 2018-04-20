@@ -81,7 +81,7 @@ init([]) ->
     %% Create device/subscriber child spec
     {ok, App} = get_application(),
     {ok, Type} = get_env(App, type),
-    Child = child_spec(Type),
+    Child = bacnet_child_spec(Type),
 
     %% Create elli child spec
     {ok, ElliPort} = get_env(App, stat_port), 
@@ -96,7 +96,15 @@ init([]) ->
 
     {ok, {RestartStrategy, [Child, Elli]}}.
 
+
+%% dds child spec
 child_spec(xaptum_device) ->
     {xaptum_device, {enfddsc, start_device, []}, permanent, 2000, worker, [enfddsc]};
 child_spec(xaptum_subscriber) ->
     {xaptum_subscriber, {enfddsc, start_subscriber, []}, permanent, 2000, worker, [enfddsc]}.
+
+%% Bacnet child spec
+bacnet_child_spec(xaptum_device) ->
+    {xaptum_device, {bacnet_proxy, start_proxy, []}, permanent, 2000, worker, [enfddsc]};
+bacnet_child_spec(xaptum_subscriber) ->
+    {xaptum_subscriber, {bacnet_control, start_control, []}, permanent, 2000, worker, [enfddsc]}.

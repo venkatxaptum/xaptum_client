@@ -10,7 +10,8 @@
     lager,
     enacl,
     erltls,
-    elli
+    elli,
+    bacnet_utils
    ]},
   {env,[]},
   {modules, []},

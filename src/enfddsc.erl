@@ -28,10 +28,13 @@
 -export([
 	 get_application/0,
 	 get_env/2,
-	 priv_dir/0
+	 priv_dir/0,
+	 read_ipv6_file/1,
+	 ipv6_to_binary/1,
+	 ipv6_binary_to_text/1
 ]).
 
--include("definitions.hrl").
+-include("dds.hrl").
 
 -record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init}).
 
@@ -90,6 +93,22 @@ get_env(App, EnvVar) ->
 
 priv_dir() ->
     enfddsc_app:priv_dir().
+
+read_ipv6_file(IpFile) ->
+    {ok, File} = file:read_file(IpFile),
+    <<Ip:32/binary, _Rest/binary>> = File,
+    <<A:4/binary, B:4/binary, C:4/binary, D:4/binary, E:4/binary, F:4/binary, G:4/binary, H:4/binary>> = Ip,
+    StrictIp = <<A/binary, ":", B/binary, ":", C/binary, ":", D/binary, ":", E/binary, ":", F/binary, ":", G/binary, ":", H/binary>>,
+    binary_to_list(StrictIp).
+    
+ipv6_to_binary(IpText) ->
+    {ok, Ip} = inet:parse_ipv6_address(IpText),
+    List = [ <<I:16>> || I <- tuple_to_list(Ip) ],
+    iolist_to_binary(List).
+
+ipv6_binary_to_text(IpBin) ->
+    <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>> = IpBin,
+    inet:ntoa({A,B,C,D,E,F,G,H}).
 %%====================================
 %% callbacks
 %%====================================
@@ -150,7 +169,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S} 
 	?SUBSCRIBER ->
 	    %% Send control message
 	    Control = <<"zigzaggy">>,
-	    OriginalMsg = base64:decode(extract_mdxp_payload(Rest)),
+	    OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Rest)),
 	    DestIp = ipv6_binary_to_text(OriginalMsg),	    
 	    ?MODULE:send_message(self(), DestIp, Control);
 
@@ -192,26 +211,6 @@ handle_call(_Msg, _From, State) ->
 %%====================================
 %% Private functions
 %%====================================
-extract_mdxp_payload(Mdxp) ->
-    {match, [Msg]} = re:run(Mdxp, ".*originalPayload\"\s*:\s*\"(.*)\".*$", [{capture, [1], list}, ungreedy]),
-    list_to_binary(Msg).
-
-read_ipv6_file(IpFile) ->
-    {ok, File} = file:read_file(IpFile),
-    <<Ip:32/binary, _Rest/binary>> = File,
-    <<A:4/binary, B:4/binary, C:4/binary, D:4/binary, E:4/binary, F:4/binary, G:4/binary, H:4/binary>> = Ip,
-    StrictIp = <<A/binary, ":", B/binary, ":", C/binary, ":", D/binary, ":", E/binary, ":", F/binary, ":", G/binary, ":", H/binary>>,
-    binary_to_list(StrictIp).
-    
-ipv6_to_binary(IpText) ->
-    {ok, Ip} = inet:parse_ipv6_address(IpText),
-    List = [ <<I:16>> || I <- tuple_to_list(Ip) ],
-    iolist_to_binary(List).
-
-ipv6_binary_to_text(IpBin) ->
-    <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>> = IpBin,
-    inet:ntoa({A,B,C,D,E,F,G,H}).
-
 create_dds_device(Ip) ->
     %% Build authentication
     PubReq = ddslib:build_init_pub_req(Ip),

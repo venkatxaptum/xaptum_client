@@ -25,7 +25,8 @@
 	 build_control_message/2,
 	 build_init_pub_req/1,
 	 build_init_sub_req/2,
-	 recv/1
+	 recv/1,
+	 extract_mdxp_payload/1
 ]).
 
 -define(TOKEN, <<"abcdefghijklmnopqrstuvwzyz1234567890ABCD">>).
@@ -114,6 +115,10 @@ build_message(SessionToken, MsgType, Message) ->
     Payload = Message,
     Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
     Packet.
+
+extract_mdxp_payload(Mdxp) ->
+    {match, [Msg]} = re:run(Mdxp, ".*originalPayload\"\s*:\s*\"(.*)\".*$", [{capture, [1], list}, ungreedy]),
+    list_to_binary(Msg).
 	    
 	    
     
