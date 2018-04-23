@@ -24,7 +24,7 @@
 
 -include("bacnet.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, dict}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, dict, data = <<>>}).
 
 %%====================================
 %% API
@@ -84,40 +84,56 @@ handle_info(init_timeout, #state{fsm = init} = State) ->
 handle_info(init_timeout, #state{fsm = op} = State) ->
     {noreply, State};
 
-handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_CONTROL} = State) ->
-    <<120, _PacketType:8, _Size:16, SessionToken/binary>> = RawData,
+handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_CONTROL, data = Bin} = State) ->
+    Data = erlang:list_to_binary([Bin, RawData]),
+    <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
     lager:info("Received Authentication Response"),
     poll_loop(write_poll),
-    {noreply, State#state{session_token = SessionToken, fsm = op}};
+    {noreply, State#state{session_token = SessionToken, fsm = op, data = Rest}};
     
-handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, received = R, sent = S, dict = Dict} = State) ->
+handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin} = State) ->
     %% Log dds message packets
-    lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
-    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, Rest/binary>> = RawData,
 
-    %% Decode the original msg
-    OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Rest)),
+    MatchFun = fun Fn(Data, #state{received = R, sent = S, dict = Dict} = FnState)->
+		       case Data of 
+			   %% This is a control message
+			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
+			       lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
 
-    %% If the Original msg matches heartbeat
-    case OriginalMsg of
-	<<?IAM, Ip/binary>> ->
-	    DestIp = enfddsc:ipv6_binary_to_text(Ip),
-	    NewDict = dict:store(DestIp, 1, Dict),
-	    {noreply, State#state{received = R+1, dict = NewDict}};
+			       %% Get bacnet request
+			       <<_SessionToken:36/binary, Mdxp/binary>> = DdsPayload,
 
-	BacnetAck ->
-	    {ok, Apdu} = bacnet_utils:get_apdu_from_message(BacnetAck),
-	    case bacnet_utils:get_pdu_type(Apdu) of
-		pdu_type_simple_ack ->
-		    lager:info("Received bacnet Simple ACK"),
-		    ignore;
+			       %% Decode the original msg
+			       OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Mdxp)),
 
-		pdu_type_complex_ack ->
-		    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
-		    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
-	    end,
-	    {noreply, State#state{received = R+1}}
-    end;
+			       %% If the Original msg matches heartbeat
+			       FnNewState = case OriginalMsg of
+						<<?IAM, Ip/binary>> ->
+						    DestIp = enfddsc:ipv6_binary_to_text(Ip),
+						    NewDict = dict:store(DestIp, 1, Dict),
+						    FnState#state{received = R+1, dict = NewDict, data = Rest};
+
+						BacnetAck ->
+						    {ok, Apdu} = bacnet_utils:get_apdu_from_message(BacnetAck),
+						    case bacnet_utils:get_pdu_type(Apdu) of
+							pdu_type_simple_ack ->
+							    lager:info("Received bacnet Simple ACK"),
+							    ignore;
+							
+							pdu_type_complex_ack ->
+							    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
+							    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
+						    end,
+						    FnState#state{received = R+1, data = Rest}
+					    end,
+			       Fn(Rest, FnNewState);
+			   
+			   Rest ->
+			       {Rest, FnState}
+		       end
+	       end,
+    {_, NewState} = MatchFun(erlang:list_to_binary([Bin, RawData]), State),
+    {noreply, NewState};
        
 handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict} = State) ->
     Ips = dict:fetch_keys(Dict),

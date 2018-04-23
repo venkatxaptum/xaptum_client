@@ -36,7 +36,7 @@
 
 -include("dds.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, data = <<>>}).
 
 %%====================================
 %% API
@@ -138,14 +138,21 @@ handle_info(init_session, #state{ip = SIP, type = ?SUBSCRIBER, queue = Q} = Stat
     send_init_timeout(),
     {noreply, NewState};
 
+handle_info(init_timeout, #state{fsm = init} = State) ->
+    {stop, init_timeout, State};
+
+handle_info(init_timeout, #state{fsm = op} = State) ->
+    {noreply, State};
+
 handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
     Msg = DIP, %%<<"buzzwigs">>,
     ?MODULE:send_message(self(), Msg),
     send_loop(),
     {noreply, State};
 
-handle_info({recv, RawData}, #state{fsm = init, type = Type} = State) ->
-    <<120, _PacketType:8, _Size:16, SessionToken/binary>> = RawData,
+handle_info({recv, RawData}, #state{fsm = init, type = Type, data = Bin} = State) ->
+    Data = erlang:list_to_binary([Bin, RawData]),
+    <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
     lager:info("Received Authentication Response"),
     case Type of
 	?SUBSCRIBER ->
@@ -153,30 +160,34 @@ handle_info({recv, RawData}, #state{fsm = init, type = Type} = State) ->
 	?DEVICE ->
 	    send_loop()
     end,
-    {noreply, State#state{session_token = SessionToken, fsm = op}};
+    {noreply, State#state{session_token = SessionToken, fsm = op, data = Rest}};
 
-handle_info(init_timeout, #state{fsm = init} = State) ->
-    {stop, init_timeout, State};
-
-handle_info(init_timeout, #state{fsm = op} = State) ->
-    {noreply, State};
     
-handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S} = State) ->
+handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S, data = Bin} = State) ->
     %% Log dds message packets
     lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
-    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, Rest/binary>> = RawData,
-    case T of
-	?SUBSCRIBER ->
-	    %% Send control message
-	    Control = <<"zigzaggy">>,
-	    OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Rest)),
-	    DestIp = ipv6_binary_to_text(OriginalMsg),	    
-	    ?MODULE:send_message(self(), DestIp, Control);
-
-	?DEVICE ->
-	    ignore
-    end,
-    {noreply, State#state{received = R+1}};
+    MatchFun = fun Fn(Data)->
+		       case Data of 
+			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
+			       case T of
+				   ?SUBSCRIBER ->
+				       %% Send control message
+				       <<_SessionToken:36/binary, Mdxp/binary>> = DdsPayload,
+				       Control = <<"zigzaggy">>,
+				       OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Mdxp)),
+				       DestIp = ipv6_binary_to_text(OriginalMsg),	    
+				       ?MODULE:send_message(self(), DestIp, Control);
+			   
+				   ?DEVICE ->
+				       ignore
+			       end,
+			       Fn(Rest);
+			   Rest ->
+			       Rest
+		       end
+	       end,
+    Rest = MatchFun(erlang:list_to_binary([Bin, RawData])),
+    {noreply, State#state{received = R+1, data = Rest}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.

@@ -81,7 +81,6 @@ handle_info({ssl, Socket, RawData}, State) ->
 handle_info(Msg, State) ->
     delegate_to_target(State, handle_info, [Msg, State#state.target_state]).
 
-
 handle_cast({send_to_broker, Data}, #state{ddsc = C} = State) ->
     ok = erltls:send(C, Data),
     {noreply, State};

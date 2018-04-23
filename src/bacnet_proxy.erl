@@ -25,7 +25,7 @@
 
 -include("bacnet.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, udp}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, udp, data = <<>>}).
 
 %%====================================
 %% API
@@ -88,28 +88,40 @@ handle_info(init_timeout, #state{fsm = init} = State) ->
 handle_info(init_timeout, #state{fsm = op} = State) ->
     {noreply, State};
 
-handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY} = State) ->
-    <<120, _PacketType:8, _Size:16, SessionToken/binary>> = RawData,
+handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY, data = Bin} = State) ->
+    Data = erlang:list_to_binary([Bin, RawData]),
+    <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
     lager:info("Received Authentication Response"),
     self() ! heartbeat_loop,
     {ok, Socket} = gen_udp:open(8780, [binary, {active, false}]),
-    {noreply, State#state{session_token = SessionToken, fsm = op, udp = Socket}};
+    {noreply, State#state{session_token = SessionToken, fsm = op, udp = Socket, data = Rest}};
     
-handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, received = R, sent = S, udp = Socket} = State) ->
+handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} = State) ->
     %% Log dds message packets
-    lager:info("Sent ~p Packets, Received ~p Packets", [S+1, R+1]),
-    <<120, _PacketType:8, _Size:16, _SessionToken:36/binary, BacnetRequest/binary>> = RawData,
-    
-    %% Send socket to 47808
-    ok = gen_udp:send(Socket, {127,0,0,1}, 47808, BacnetRequest),
+    MatchFun = fun Fn(Data, #state{received = R, sent = S, udp = Socket} = FnState)->
+		       case Data of 
+			   %% This is a control message
+			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
+			       lager:info("Sent ~p Packets, Received ~p Packets", [S+1, R+1]),
 
-    %% Read the response from bacserv
-    {ok, {_Address, _Port, BacnetAck}} = gen_udp:recv(Socket, 0, 5000),
+			       %% Get bacnet request
+			       <<_SessionToken:36/binary, BacnetRequest/binary>> = DdsPayload,
+
+			       %% Send socket to 47808
+			       ok = gen_udp:send(Socket, {127,0,0,1}, 47808, BacnetRequest),
+
+			       %% Read the response from bacserv
+			       {ok, {_Address, _Port, BacnetAck}} = gen_udp:recv(Socket, 0, 5000),
     
-    %% Now Send the ACK to control	    
-    ?MODULE:send_message(self(), BacnetAck),
-    
-    {noreply, State#state{received = R+1}};
+			       %% Now Send the ACK to control	    
+			       ?MODULE:send_message(self(), BacnetAck),
+			       Fn(Rest, FnState#state{received = R+1, data = Rest});
+			   Rest ->
+			       {Rest, FnState}
+		       end
+	       end,    
+    {_, NewState} = MatchFun(erlang:list_to_binary([Bin, RawData]), State),
+    {noreply, NewState};
 
 handle_info(heartbeat_loop, #state{ip = DIP, type = ?BACNET_PROXY} = State) ->
     Msg = <<?IAM, DIP/binary>>,
