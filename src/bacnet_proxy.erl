@@ -25,7 +25,7 @@
 
 -include("bacnet.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, udp, data = <<>>}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, udp, data = <<>>, poll_resp = 0, poll_req = 0}).
 
 %%====================================
 %% API
@@ -98,12 +98,10 @@ handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY, data = Bin
     
 handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} = State) ->
     %% Log dds message packets
-    MatchFun = fun Fn(Data, #state{received = R, sent = S, udp = Socket} = FnState)->
+    MatchFun = fun Fn(Data, #state{received = R, poll_resp = PRESP, poll_req = PREQ, udp = Socket} = FnState)->
 		       case Data of 
 			   %% This is a control message
 			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
-			       lager:info("Sent ~p Packets, Received ~p Packets", [S+1, R+1]),
-
 			       %% Get bacnet request
 			       <<_SessionToken:36/binary, BacnetRequest/binary>> = DdsPayload,
 
@@ -115,7 +113,8 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} 
     
 			       %% Now Send the ACK to control	    
 			       ?MODULE:send_message(self(), BacnetAck),
-			       Fn(Rest, FnState#state{received = R+1, data = Rest});
+			       lager:info("Sent ~p Poll Responses, Received ~p Poll Requests", [PRESP+1, PREQ+1]),
+			       Fn(Rest, FnState#state{received = R+1, poll_resp = PRESP+1, poll_req = PREQ+1, data = Rest});
 			   Rest ->
 			       {Rest, FnState}
 		       end

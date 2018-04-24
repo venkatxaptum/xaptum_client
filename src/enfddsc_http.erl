@@ -4,7 +4,7 @@
 
 -include_lib("elli/include/elli.hrl").
 
--include("definitions.hrl").
+-include("dds.hrl").
 
 -behaviour(elli_handler).
 

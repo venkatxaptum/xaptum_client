@@ -24,7 +24,7 @@
 
 -include("bacnet.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, dict, data = <<>>}).
+-record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, dict, data = <<>>, poll_req = 0, poll_resp = 0}).
 
 %%====================================
 %% API
@@ -94,12 +94,10 @@ handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_CONTROL, data = B
 handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin} = State) ->
     %% Log dds message packets
 
-    MatchFun = fun Fn(Data, #state{received = R, sent = S, dict = Dict} = FnState)->
+    MatchFun = fun Fn(Data, #state{received = R,poll_resp = PRESP, poll_req = PREQ, dict = Dict} = FnState)->
 		       case Data of 
 			   %% This is a control message
 			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
-			       lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
-
 			       %% Get bacnet request
 			       <<_SessionToken:36/binary, Mdxp/binary>> = DdsPayload,
 
@@ -114,6 +112,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
 						    FnState#state{received = R+1, dict = NewDict, data = Rest};
 
 						BacnetAck ->
+						    lager:info("Sent ~p Poll Requests, Received ~p Poll Responses", [PREQ, PRESP+1]),
 						    {ok, Apdu} = bacnet_utils:get_apdu_from_message(BacnetAck),
 						    case bacnet_utils:get_pdu_type(Apdu) of
 							pdu_type_simple_ack ->
@@ -124,7 +123,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
 							    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
 							    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
 						    end,
-						    FnState#state{received = R+1, data = Rest}
+						    FnState#state{received = R+1, poll_resp = PRESP+1, data = Rest}
 					    end,
 			       Fn(Rest, FnNewState);
 			   
@@ -135,7 +134,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
     {_, NewState} = MatchFun(erlang:list_to_binary([Bin, RawData]), State),
     {noreply, NewState};
        
-handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict} = State) ->
+handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict, poll_req = PREQ} = State) ->
     Ips = dict:fetch_keys(Dict),
     lists:foreach( fun(Ip) ->
 			   IpBytes = enfddsc:ipv6_to_binary(Ip),
@@ -145,9 +144,9 @@ handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict}
 			   lager:info("Sending write property request with Id: ~p, Tag: ~p", [Id, Tag])
 		   end, Ips),
     poll_loop(read_poll),
-    {noreply, State};
+    {noreply, State#state{poll_req = PREQ+length(Ips)}};
 
-handle_info({poll_loop, read_poll}, #state{type = ?BACNET_CONTROL, dict = Dict} = State) ->
+handle_info({poll_loop, read_poll}, #state{type = ?BACNET_CONTROL, dict = Dict, poll_req = PREQ} = State) ->
     Ips = dict:fetch_keys(Dict),
     lists:foreach( fun(Ip) ->
 			   {ok, Control} = bacnet_utils:build_read_property_request(),
@@ -155,7 +154,7 @@ handle_info({poll_loop, read_poll}, #state{type = ?BACNET_CONTROL, dict = Dict} 
 			   lager:info("Sending read property request")
 		   end, Ips),
     poll_loop(write_poll),
-    {noreply, State};
+    {noreply, State#state{poll_req = PREQ+length(Ips)}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
