@@ -121,11 +121,15 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
 								    ignore;
 							
 								pdu_type_complex_ack ->
-								    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
-								    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
+								    case bacnet_utils:get_value_from_complex_ack(Apdu) of
+									{ok, Id, Tag} ->
+									    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag]);
+									CV ->
+									    lager:info("Got ~p while processing Complex Ack. Ignore", [CV])
+								    end
 							    end;
-							R ->
-							    lager:info("Got ~p while processing BacknetAck. Ignore", [R])
+							ApduError ->
+							    lager:info("Got ~p while processing BacknetAck. Ignore", [ApduError])
 						    end,
 						    FnState#state{received = R+1, poll_resp = PRESP+1, data = Rest}
 					    end,
