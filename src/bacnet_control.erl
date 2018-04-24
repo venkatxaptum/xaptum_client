@@ -112,16 +112,20 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
 						    FnState#state{received = R+1, dict = NewDict, data = Rest};
 
 						BacnetAck ->
-						    lager:info("Sent ~p Poll Requests, Received ~p Poll Responses", [PREQ, PRESP+1]),
-						    {ok, Apdu} = bacnet_utils:get_apdu_from_message(BacnetAck),
-						    case bacnet_utils:get_pdu_type(Apdu) of
-							pdu_type_simple_ack ->
-							    lager:info("Received bacnet Simple ACK"),
-							    ignore;
+						    case bacnet_utils:get_apdu_from_message(BacnetAck) of
+							{ok, Apdu} ->
+							    lager:info("Sent ~p Poll Requests, Received ~p Poll Responses", [PREQ, PRESP+1]),
+							    case bacnet_utils:get_pdu_type(Apdu) of
+								pdu_type_simple_ack ->
+								    lager:info("Received bacnet Simple ACK"),
+								    ignore;
 							
-							pdu_type_complex_ack ->
-							    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
-							    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
+								pdu_type_complex_ack ->
+								    {ok, Id, Tag} = bacnet_utils:get_value_from_complex_ack(Apdu),
+								    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag])
+							    end;
+							R ->
+							    lager:info("Got ~p while processing BacknetAck. Ignore", [R])
 						    end,
 						    FnState#state{received = R+1, poll_resp = PRESP+1, data = Rest}
 					    end,
