@@ -16,7 +16,9 @@
 -export([
 	 get_application/0,
 	 get_env/2,
-	 priv_dir/0
+	 priv_dir/0,
+	 trace_calls/2,
+	 trace_calls/3
 ]).
 
 %% supervisor behaviour and callbacks
@@ -34,13 +36,13 @@
 %% application behaviour implementation
 %%====================================================================
 start(_StartType, _StartArgs) ->
-    lager:info("Starting enfddsc application"),
+    log:info("Starting enfddsc application"),
 
     %% Start root supervisor
     ?MODULE:start_link().
 
 stop(_State) ->
-    lager:info("Application receive stop. State is ~p", [_State]),
+    log:info("Application receive stop. State is ~p", [_State]),
     ok.
 
 %%====================================================================
@@ -58,9 +60,17 @@ get_env(App, EnvVar) ->
 priv_dir() ->
     case code:priv_dir(enfddsc) of
 	{error, bad_name} ->
-	    lager:info("Couldn't find priv dir for the application, using ./priv~n"), "./priv";
+	    log:info("Couldn't find priv dir for the application, using ./priv~n"), "./priv";
 	PrivDir -> filename:absname(PrivDir)
     end.
+
+trace_calls(Mod, Fun) ->
+    trace_calls(Mod, Fun, 10).
+
+trace_calls(Mod, Fun, Max) ->
+    Opts = [{scope, local}],
+    MatchSpec = [{'_', [], [{return_trace}]}],
+    recon_trace:calls({Mod, Fun, MatchSpec}, Max, Opts).
 
 %%====================================================================
 %% supervisor behaviour implementation
@@ -81,7 +91,7 @@ init([]) ->
     %% Create device/subscriber child spec
     {ok, App} = get_application(),
     {ok, Type} = get_env(App, type),
-    Child = bacnet_child_spec(Type),
+    %%Child = bacnet_child_spec(Type),
 
     %% Create elli child spec
     {ok, ElliPort} = get_env(App, stat_port), 
@@ -94,7 +104,12 @@ init([]) ->
         worker,
         [elli]},
 
-    {ok, {RestartStrategy, [Child, Elli]}}.
+    %% Create netlink spec
+    Netlink = {netlink_monitor, {netlink, start_link,[]}, permanent, 2000, worker, [netlink]},
+
+    {ok, {RestartStrategy, [Elli, Netlink]}}.
+
+
 
 
 %% dds child spec

@@ -137,16 +137,23 @@ connect_to_broker() ->
     {ok, Keyfile} = get_env(App, key_file),
 
     %% Connect to XMB
-    {ok, C} = erltls:connect(Host, Port, 
-		   [binary, {active, once}, 
-		    {reuseaddr, true}, 
-		    {packet, 0}, 
-		    {keepalive, true}, 
-		    {nodelay, true},
-		    {verify, verify_none},
-		    {fail_if_no_peer_cert, false},
-		    {certfile, Certfile},
-		    {keyfile, Keyfile}
-		   ],2000),
-    lager:info("Connected to Broker"),
-    {ok, C}.
+    Connect = erltls:connect(Host, Port, 
+			     [binary, {active, once}, 
+			      {reuseaddr, true}, 
+			      {packet, 0}, 
+			      {keepalive, true}, 
+			      {nodelay, true},
+			      {verify, verify_none},
+			      {fail_if_no_peer_cert, false},
+			      {certfile, Certfile},
+			      {keyfile, Keyfile}
+			     ],2000),
+    case Connect of
+	{ok, C} ->
+	    lager:info("Connected to Broker"),
+	    {ok, C};
+	_ ->
+	    lager:info("Unable to connect to broker. Retrying after 1 second"),
+	    timer:sleep(1000),
+	    connect_to_broker()
+    end.

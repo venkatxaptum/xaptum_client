@@ -91,7 +91,7 @@ handle_info(init_timeout, #state{fsm = op} = State) ->
 handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY, data = Bin} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
     <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    lager:info("Received Authentication Response"),
+    log:info("Received Authentication Response"),
     self() ! heartbeat_loop,
     {ok, Socket} = gen_udp:open(8780, [binary, {active, false}]),
     {noreply, State#state{session_token = SessionToken, fsm = op, udp = Socket, data = Rest}};
@@ -113,7 +113,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} 
     
 			       %% Now Send the ACK to control	    
 			       ?MODULE:send_message(self(), BacnetAck),
-			       lager:info("Sent ~p Poll Responses, Received ~p Poll Requests", [PRESP+1, PREQ+1]),
+			       log:info("Sent ~p Poll Responses, Received ~p Poll Requests", [PRESP+1, PREQ+1]),
 			       Fn(Rest, FnState#state{received = R+1, poll_resp = PRESP+1, poll_req = PREQ+1, data = Rest});
 			   Rest ->
 			       {Rest, FnState}
@@ -165,7 +165,7 @@ create_dds_device(Ip) ->
     %% Build authentication
     PubReq = ddslib:build_init_pub_req(Ip),
     ok = gen_enfc:send(PubReq),
-    lager:info("Sent device authentication Request"),
+    log:info("Sent device authentication Request"),
     ok.
 
 heartbeat_loop() ->

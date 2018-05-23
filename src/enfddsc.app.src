@@ -11,7 +11,9 @@
     enacl,
     erltls,
     elli,
-    bacnet_utils
+    bacnet_utils,
+%%    gen_netlink,
+    recon
    ]},
   {env,[]},
   {modules, []},

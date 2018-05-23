@@ -153,7 +153,7 @@ handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
 handle_info({recv, RawData}, #state{fsm = init, type = Type, data = Bin} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
     <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    lager:info("Received Authentication Response"),
+    log:info("Received Authentication Response"),
     case Type of
 	?SUBSCRIBER ->
 	    noop;
@@ -165,7 +165,7 @@ handle_info({recv, RawData}, #state{fsm = init, type = Type, data = Bin} = State
     
 handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S, data = Bin} = State) ->
     %% Log dds message packets
-    lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
+    log:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
     MatchFun = fun Fn(Data)->
 		       case Data of 
 			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
@@ -226,7 +226,7 @@ create_dds_device(Ip) ->
     %% Build authentication
     PubReq = ddslib:build_init_pub_req(Ip),
     ok = gen_enfc:send(PubReq),
-    lager:info("Sent device authentication Request"),
+    log:info("Sent device authentication Request"),
     ok.
 
 create_dds_subscriber(Ip, Q) ->
@@ -234,7 +234,7 @@ create_dds_subscriber(Ip, Q) ->
     %% build Authentication Request
     SubReq = ddslib:build_init_sub_req(Ip, Q),
     ok = gen_enfc:send(SubReq),
-    lager:info("Sent subscriber authentication Request"),
+    log:info("Sent subscriber authentication Request"),
     ok.
 
 send_loop() ->

@@ -87,7 +87,7 @@ handle_info(init_timeout, #state{fsm = op} = State) ->
 handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_CONTROL, data = Bin} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
     <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    lager:info("Received Authentication Response"),
+    log:info("Received Authentication Response"),
     poll_loop(write_poll),
     {noreply, State#state{session_token = SessionToken, fsm = op, data = Rest}};
     
@@ -114,22 +114,22 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_CONTROL, data = Bin
 						BacnetAck ->
 						    case bacnet_utils:get_apdu_from_message(BacnetAck) of
 							{ok, Apdu} ->
-							    lager:info("Sent ~p Poll Requests, Received ~p Poll Responses", [PREQ, PRESP+1]),
+							    log:info("Sent ~p Poll Requests, Received ~p Poll Responses", [PREQ, PRESP+1]),
 							    case bacnet_utils:get_pdu_type(Apdu) of
 								pdu_type_simple_ack ->
-								    lager:info("Received bacnet Simple ACK"),
+								    log:info("Received bacnet Simple ACK"),
 								    ignore;
 							
 								pdu_type_complex_ack ->
 								    case bacnet_utils:get_value_from_complex_ack(Apdu) of
 									{ok, Id, Tag} ->
-									    lager:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag]);
+									    log:info("Received bacnet Complex ACK with Id: ~p, Tag: ~p", [Id, Tag]);
 									CV ->
-									    lager:info("Got ~p while processing Complex Ack. Ignore", [CV])
+									    log:info("Got ~p while processing Complex Ack. Ignore", [CV])
 								    end
 							    end;
 							ApduError ->
-							    lager:info("Got ~p while processing BacknetAck. Ignore", [ApduError])
+							    log:info("Got ~p while processing BacknetAck. Ignore", [ApduError])
 						    end,
 						    FnState#state{received = R+1, poll_resp = PRESP+1, data = Rest}
 					    end,
@@ -149,7 +149,7 @@ handle_info({poll_loop, write_poll}, #state{type = ?BACNET_CONTROL, dict = Dict,
 			   <<Id:64, Tag:64>> = IpBytes,
 			   {ok, Control} = bacnet_utils:build_write_property_request(Id, Tag),
 			   ?MODULE:send_message(self(), Ip, Control),
-			   lager:info("Sending write property request with Id: ~p, Tag: ~p", [Id, Tag])
+			   log:info("Sending write property request with Id: ~p, Tag: ~p", [Id, Tag])
 		   end, Ips),
     poll_loop(read_poll),
     {noreply, State#state{poll_req = PREQ+length(Ips)}};
@@ -159,7 +159,7 @@ handle_info({poll_loop, read_poll}, #state{type = ?BACNET_CONTROL, dict = Dict, 
     lists:foreach( fun(Ip) ->
 			   {ok, Control} = bacnet_utils:build_read_property_request(),
 			   ?MODULE:send_message(self(), Ip, Control),
-			   lager:info("Sending read property request")
+			   log:info("Sending read property request")
 		   end, Ips),
     poll_loop(write_poll),
     {noreply, State#state{poll_req = PREQ+length(Ips)}};
@@ -201,7 +201,7 @@ create_dds_subscriber(Ip, Q) ->
     %% build Authentication Request
     SubReq = ddslib:build_init_sub_req(Ip, Q),
     ok = gen_enfc:send(SubReq),
-    lager:info("Sent subscriber authentication Request"),
+    log:info("Sent subscriber authentication Request"),
     ok.
 
 poll_loop(Type) ->

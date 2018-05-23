@@ -4,6 +4,7 @@
 **/*.o
 **/*.so
 **/*.so.*
+**/xaptum_client
 
 #
 # Ignore files for Maven, Eclipse projects
