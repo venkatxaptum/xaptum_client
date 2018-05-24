@@ -66,7 +66,6 @@ get_message_count(Server) ->
 %% callbacks
 %%====================================
 init([{?BACNET_PROXY, DIP}]) ->
-    self() ! init_session,
     {ok, #state{ip = DIP, type = ?BACNET_PROXY}}.
 
 terminate(_Reason, #state{udp = Udp} = _State) ->
@@ -76,7 +75,9 @@ terminate(_Reason, #state{udp = Udp} = _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-handle_info(init_session, #state{ip = DIP, type = ?BACNET_PROXY} = State) ->
+handle_info(init_session, #state{ip = DIP, type = ?BACNET_PROXY, udp = Udp} = State) ->
+    catch gen_udp:close(Udp),
+
     ok = create_dds_device(DIP),
     NewState = State#state{fsm = init},
     send_init_timeout(),
@@ -91,7 +92,7 @@ handle_info(init_timeout, #state{fsm = op} = State) ->
 handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY, data = Bin} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
     <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    log:info("Received Authentication Response"),
+    lager:info("Received Authentication Response"),
     self() ! heartbeat_loop,
     {ok, Socket} = gen_udp:open(8780, [binary, {active, false}]),
     {noreply, State#state{session_token = SessionToken, fsm = op, udp = Socket, data = Rest}};
@@ -113,7 +114,9 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} 
     
 			       %% Now Send the ACK to control	    
 			       ?MODULE:send_message(self(), BacnetAck),
-			       log:info("Sent ~p Poll Responses, Received ~p Poll Requests", [PRESP+1, PREQ+1]),
+			       %%lager:info("Sent ~p Poll Responses, Received ~p Poll Requests", [PRESP+1, PREQ+1]),
+			       poll_counter:inc_preq(),
+			       poll_counter:inc_presp(),
 			       Fn(Rest, FnState#state{received = R+1, poll_resp = PRESP+1, poll_req = PREQ+1, data = Rest});
 			   Rest ->
 			       {Rest, FnState}
@@ -165,11 +168,11 @@ create_dds_device(Ip) ->
     %% Build authentication
     PubReq = ddslib:build_init_pub_req(Ip),
     ok = gen_enfc:send(PubReq),
-    log:info("Sent device authentication Request"),
+    lager:info("Sent device authentication Request"),
     ok.
 
 heartbeat_loop() ->
     erlang:send_after(10000, self(), heartbeat_loop).
 
 send_init_timeout() ->
-    erlang:send_after(2000, self(), init_timeout).
+    erlang:send_after(5000, self(), init_timeout).

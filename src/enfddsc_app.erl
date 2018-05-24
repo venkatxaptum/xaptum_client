@@ -104,7 +104,9 @@ init([]) ->
         worker,
         [elli]},
 
-    {ok, {RestartStrategy, [Child, Elli]}}.
+    PollCounter = {poll_counter, {poll_counter, start_link, []}, permanent, 2000, worker, [poll_counter]},
+
+    {ok, {RestartStrategy, [PollCounter, Child, Elli]}}.
 
 
 

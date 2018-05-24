@@ -113,7 +113,6 @@ ipv6_binary_to_text(IpBin) ->
 %% callbacks
 %%====================================
 init([{?DEVICE, DIP}]) ->
-    self() ! init_session,
     {ok, #state{ip = DIP, type = ?DEVICE}};
 
 init([{?SUBSCRIBER, SIP, Q}]) ->

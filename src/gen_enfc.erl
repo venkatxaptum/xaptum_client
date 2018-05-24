@@ -58,8 +58,11 @@ init([{init, Name, TargetModule, TargetArgs}]) ->
         ignore
     end.
 
-terminate(Reason, #state{target_module = TargetModule, ddsc = C} = State) ->
+terminate(Reason, #state{target_module = TargetModule, ddsc = C, port = P} = State) ->
     TargetModule:terminate(Reason, State#state.target_state),
+
+    %% close netlink port
+    erlang:port_close(P),
 
     %% close the connection
     catch erltls:close(C),
@@ -76,20 +79,22 @@ handle_info(start_netlink_monitor, State) ->
     {noreply, State#state{port = Port}};
 
 handle_info({Port, {data, Data}}, #state{port = Port} = State) ->
-    case handle_port_data(Data) of
-	ok ->
-	    {noreply, State};
-	stop ->
-	    {stop, normal, State}
-    end;
+    ok = handle_port_data(Data),
+    {noreply, State};
 
 handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
     lager:info("Netlink port exited with status ~p", [Status]),
     self() ! start_netlink_monitor,
     {noreply, State};
 
+handle_info(reconnect_to_broker, #state{ddsc = C} = State) ->
+    catch erltls:close(C),
+    self() ! connect_to_broker,
+    {noreply, State#state{ddsc = undefined}};
+
 handle_info(connect_to_broker, State) ->
     {ok, C} = connect_to_broker(),
+    self() ! init_session,
     {noreply, State#state{ddsc = C}};
 
 handle_info({ssl_closed, _Socket}, State) ->
@@ -104,9 +109,14 @@ handle_info({ssl, Socket, RawData}, State) ->
 handle_info(Msg, State) ->
     delegate_to_target(State, handle_info, [Msg, State#state.target_state]).
 
+handle_cast({send_to_broker, Data}, #state{ddsc = undefined} = State) ->
+    lager:info("Ignoring send ~p as connection not established", [Data]),
+    {noreply, State};
+
 handle_cast({send_to_broker, Data}, #state{ddsc = C} = State) ->
     ok = erltls:send(C, Data),
     {noreply, State};
+
 handle_cast(stop, State) ->
     {stop, normal, State};
 handle_cast(Msg, State) ->
@@ -126,7 +136,8 @@ handle_port_data(<<131, _/binary>> = Data) ->
 handle_port_data({deladdr, Interface}) ->
     lager:info("Interface ~p: address was removed", [Interface]),
     lager:info("Detected ip address change. Reconnecting...."),
-    stop;
+    self() ! reconnect_to_broker,
+    ok;
 
 handle_port_data({newaddr, Interface, IpAddress}) ->
     lager:info("Interface ~p: new address was assigned: ~p", [Interface, IpAddress]),
