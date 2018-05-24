@@ -91,7 +91,7 @@ init([]) ->
     %% Create device/subscriber child spec
     {ok, App} = get_application(),
     {ok, Type} = get_env(App, type),
-    %%Child = bacnet_child_spec(Type),
+    Child = bacnet_child_spec(Type),
 
     %% Create elli child spec
     {ok, ElliPort} = get_env(App, stat_port), 
@@ -104,10 +104,7 @@ init([]) ->
         worker,
         [elli]},
 
-    %% Create netlink spec
-    Netlink = {netlink_monitor, {netlink, start_link,[]}, permanent, 2000, worker, [netlink]},
-
-    {ok, {RestartStrategy, [Elli, Netlink]}}.
+    {ok, {RestartStrategy, [Child, Elli]}}.
 
 
 

@@ -17,7 +17,7 @@
 	 terminate/2,
 	 code_change/3]).
 
--record(state, {name, target_module, target_state, ddsc}).
+-record(state, {name, target_module, target_state, ddsc, port}).
 
 %%====================================
 %% API
@@ -37,6 +37,9 @@ send(Data) ->
 %% callbacks
 %%====================================
 init([{init, Name, TargetModule, TargetArgs}]) ->
+    %% Start netlink monitor
+    self() ! start_netlink_monitor,
+
     %% Send a message to connect
     self() ! connect_to_broker,
 
@@ -64,6 +67,26 @@ terminate(Reason, #state{target_module = TargetModule, ddsc = C} = State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+handle_info(start_netlink_monitor, State) ->
+    lager:info("Starting netlink port"),
+    PrivDir = enfddsc:priv_dir(),
+    PortFile = filename:join([PrivDir, "xaptum_client"]),
+    Port = open_port({spawn, PortFile}, [binary, {packet,4}, exit_status]),
+    {noreply, State#state{port = Port}};
+
+handle_info({Port, {data, Data}}, #state{port = Port} = State) ->
+    case handle_port_data(Data) of
+	ok ->
+	    {noreply, State};
+	stop ->
+	    {stop, normal, State}
+    end;
+
+handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
+    lager:info("Netlink port exited with status ~p", [Status]),
+    self() ! start_netlink_monitor,
+    {noreply, State};
 
 handle_info(connect_to_broker, State) ->
     {ok, C} = connect_to_broker(),
@@ -96,6 +119,35 @@ handle_call(Msg, From, State) ->
 %%====================================
 %% Private functions
 %%====================================
+handle_port_data(<<131, _/binary>> = Data) ->
+    Term = binary_to_term(Data),
+    handle_port_data(Term);
+
+handle_port_data({deladdr, Interface}) ->
+    lager:info("Interface ~p: address was removed", [Interface]),
+    lager:info("Detected ip address change. Reconnecting...."),
+    stop;
+
+handle_port_data({newaddr, Interface, IpAddress}) ->
+    lager:info("Interface ~p: new address was assigned: ~p", [Interface, IpAddress]),
+    ok;
+
+handle_port_data({newlink, Interface, down, not_running}) ->
+    lager:info("New network interface ~p, state: DOWN NOT RUNNING", [Interface]),
+    ok;
+
+handle_port_data({newlink,Interface,up,not_running}) ->
+    lager:info("New network interface ~p, state: UP NOT RUNNING", [Interface]),
+    ok;
+
+handle_port_data({newlink,Interface,up,running}) ->
+    lager:info("New network interface ~p, state: UP RUNNING", [Interface]),
+    ok;
+
+handle_port_data(Data) ->
+    lager:info("Got ~p from port", [Data]),
+    ok.
+
 get_app() ->
     application:get_application(?MODULE).
 
