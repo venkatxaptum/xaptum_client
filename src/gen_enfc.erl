@@ -93,9 +93,17 @@ handle_info(reconnect_to_broker, #state{ddsc = C} = State) ->
     {noreply, State#state{ddsc = undefined}};
 
 handle_info(connect_to_broker, State) ->
-    {ok, C} = connect_to_broker(),
-    self() ! init_session,
-    {noreply, State#state{ddsc = C}};
+    case connect_to_broker() of
+	{ok, C} ->
+	    lager:info("Connected to Broker"),
+	    self() ! init_session,
+	    {noreply, State#state{ddsc = C}};
+
+	_ ->
+	    lager:info("Unable to connect to broker. Retrying after 1 second"),
+	    connect_to_broker_loop(),
+	    {noreply, State}
+    end;
 
 handle_info({ssl_closed, _Socket}, State) ->
     %% Relaunch 
@@ -141,6 +149,8 @@ handle_port_data({deladdr, Interface}) ->
 
 handle_port_data({newaddr, Interface, IpAddress}) ->
     lager:info("Interface ~p: new address was assigned: ~p", [Interface, IpAddress]),
+    lager:info("Detected ip address change. Reconnecting...."),
+    self() ! reconnect_to_broker,
     ok;
 
 handle_port_data({newlink, Interface, down, not_running}) ->
@@ -200,23 +210,17 @@ connect_to_broker() ->
     {ok, Keyfile} = get_env(App, key_file),
 
     %% Connect to XMB
-    Connect = erltls:connect(Host, Port, 
-			     [binary, {active, once}, 
-			      {reuseaddr, true}, 
-			      {packet, 0}, 
-			      {keepalive, true}, 
-			      {nodelay, true},
-			      {verify, verify_none},
-			      {fail_if_no_peer_cert, false},
-			      {certfile, Certfile},
-			      {keyfile, Keyfile}
-			     ],2000),
-    case Connect of
-	{ok, C} ->
-	    lager:info("Connected to Broker"),
-	    {ok, C};
-	_ ->
-	    lager:info("Unable to connect to broker. Retrying after 1 second"),
-	    timer:sleep(1000),
-	    connect_to_broker()
-    end.
+    erltls:connect(Host, Port, 
+		   [binary, {active, once}, 
+		    {reuseaddr, true}, 
+		    {packet, 0}, 
+		    {keepalive, true}, 
+		    {nodelay, true},
+		    {verify, verify_none},
+		    {fail_if_no_peer_cert, false},
+		    {certfile, Certfile},
+		    {keyfile, Keyfile}
+		   ],2000).
+
+connect_to_broker_loop() ->
+    erlang:send_after(1000, self(), connect_to_broker).
