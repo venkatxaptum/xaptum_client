@@ -25,7 +25,7 @@
 
 -include("bacnet.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, udp, data = <<>>, poll_resp = 0, poll_req = 0}).
+-record(state, {ip, type, queue, sent = 0, received = 0, fsm = init, udp, data = <<>>, poll_resp = 0, poll_req = 0}).
 
 %%====================================
 %% API
@@ -91,11 +91,11 @@ handle_info(init_timeout, #state{fsm = op} = State) ->
 
 handle_info({recv, RawData}, #state{fsm = init, type = ?BACNET_PROXY, data = Bin} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
-    <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    lager:info("Received Authentication Response"),
+    <<120, _PacketType:8, _Size:16,  _Ipv6:16/binary, Rest/binary>> = Data,
+    lager:info("Received Server Hello"),
     self() ! heartbeat_loop,
     {ok, Socket} = gen_udp:open(8780, [binary, {active, false}]),
-    {noreply, State#state{session_token = SessionToken, fsm = op, udp = Socket, data = Rest}};
+    {noreply, State#state{fsm = op, udp = Socket, data = Rest}};
     
 handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} = State) ->
     %% Log dds message packets
@@ -104,7 +104,7 @@ handle_info({recv, RawData}, #state{fsm = op, type = ?BACNET_PROXY, data = Bin} 
 			   %% This is a control message
 			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
 			       %% Get bacnet request
-			       <<_SessionToken:36/binary, BacnetRequest/binary>> = DdsPayload,
+			       <<_:16/binary, BacnetRequest/binary>> = DdsPayload,
 
 			       %% Send socket to 47808
 			       ok = gen_udp:send(Socket, {127,0,0,1}, 47808, BacnetRequest),
@@ -135,16 +135,16 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 
-handle_cast({send, Msg}, #state{session_token = ST, sent = S} = State) ->
+handle_cast({send, Msg}, #state{sent = S} = State) ->
     %% send a regular message
-    Packet = ddslib:build_reg_message(ST, Msg),
+    Packet = ddslib:build_reg_message(Msg),
     ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
-handle_cast({send, Dest, Msg}, #state{session_token = ST, sent = S} = State) ->
+handle_cast({send, Dest, Msg}, #state{sent = S} = State) ->
     %% send a control message
     Control = <<Dest/binary,Msg/binary>>,
-    Packet = ddslib:build_control_message(ST, Control),
+    Packet = ddslib:build_control_message(Control),
     ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
@@ -165,10 +165,7 @@ handle_call(_Msg, _From, State) ->
 %% Private functions
 %%====================================
 create_dds_device(Ip) ->
-    %% Build authentication
-    PubReq = ddslib:build_init_pub_req(Ip),
-    ok = gen_enfc:send(PubReq),
-    lager:info("Sent device authentication Request"),
+    lager:info("Waiting for server hello for ~p", [Ip]),
     ok.
 
 heartbeat_loop() ->

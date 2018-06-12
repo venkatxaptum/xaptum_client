@@ -12,7 +12,8 @@
     erltls,
     elli,
     bacnet_utils,
-%%    gen_netlink,
+    folsom,
+    oneup,
     recon
    ]},
   {env,[]},

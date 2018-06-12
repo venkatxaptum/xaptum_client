@@ -36,7 +36,7 @@
 
 -include("dds.hrl").
 
--record(state, {ip, type, session_token, queue, sent = 0, received = 0, fsm = init, data = <<>>}).
+-record(state, {ip, type, queue, sent = 0, received = 0, fsm = init, data = <<>>}).
 
 %%====================================
 %% API
@@ -149,29 +149,33 @@ handle_info(send_loop, #state{ip = DIP, type = ?DEVICE} = State) ->
     send_loop(),
     {noreply, State};
 
-handle_info({recv, RawData}, #state{fsm = init, type = Type, data = Bin} = State) ->
+handle_info({recv, RawData}, #state{fsm = init, type = Type, data = Bin, queue = Q} = State) ->
     Data = erlang:list_to_binary([Bin, RawData]),
-    <<120, _PacketType:8, _Size:16, SessionToken:36/binary, Rest/binary>> = Data,
-    log:info("Received Authentication Response"),
+    %% Sever hello
+    <<120, _PacketType:8, _Size:16, Ipv6:16/binary, Rest/binary>> = Data,
+    lager:info("Received Server Hello for ~p", [Ipv6]),
     case Type of
 	?SUBSCRIBER ->
-	    noop;
+	    %% build Authentication Request
+	    SubReq = ddslib:build_init_sub_req(Q),
+	    ok = gen_enfc:send(SubReq);
+
 	?DEVICE ->
 	    send_loop()
     end,
-    {noreply, State#state{session_token = SessionToken, fsm = op, data = Rest}};
+    {noreply, State#state{fsm = op, data = Rest}};
 
     
 handle_info({recv, RawData}, #state{fsm = op, type = T, received = R, sent = S, data = Bin} = State) ->
     %% Log dds message packets
-    log:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
+    lager:info("Sent ~p Packets, Received ~p Packets", [S, R+1]),
     MatchFun = fun Fn(Data)->
 		       case Data of 
 			   <<120, _PacketType:8, Size:16, DdsPayload:Size/bytes, Rest/binary>> ->
 			       case T of
 				   ?SUBSCRIBER ->
 				       %% Send control message
-				       <<_SessionToken:36/binary, Mdxp/binary>> = DdsPayload,
+				       <<_:16/binary, Mdxp/binary>> = DdsPayload,
 				       Control = <<"zigzaggy">>,
 				       OriginalMsg = base64:decode(ddslib:extract_mdxp_payload(Mdxp)),
 				       DestIp = ipv6_binary_to_text(OriginalMsg),	    
@@ -192,16 +196,16 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 
-handle_cast({send, Msg}, #state{session_token = ST, sent = S} = State) ->
+handle_cast({send, Msg}, #state{sent = S} = State) ->
     %% send a regular message
-    Packet = ddslib:build_reg_message(ST, Msg),
+    Packet = ddslib:build_reg_message(Msg),
     ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
-handle_cast({send, Dest, Msg}, #state{session_token = ST, sent = S} = State) ->
+handle_cast({send, Dest, Msg}, #state{sent = S} = State) ->
     %% send a control message
     Control = <<Dest/binary,Msg/binary>>,
-    Packet = ddslib:build_control_message(ST, Control),
+    Packet = ddslib:build_control_message(Control),
     ok = gen_enfc:send(Packet),
     {noreply, State#state{sent = S+1}};
 
@@ -222,22 +226,15 @@ handle_call(_Msg, _From, State) ->
 %% Private functions
 %%====================================
 create_dds_device(Ip) ->
-    %% Build authentication
-    PubReq = ddslib:build_init_pub_req(Ip),
-    ok = gen_enfc:send(PubReq),
-    log:info("Sent device authentication Request"),
+    lager:info("Waiting for server hello for IP ~p", [Ip]),
     ok.
 
-create_dds_subscriber(Ip, Q) ->
-
-    %% build Authentication Request
-    SubReq = ddslib:build_init_sub_req(Ip, Q),
-    ok = gen_enfc:send(SubReq),
-    log:info("Sent subscriber authentication Request"),
+create_dds_subscriber(Ip, _Q) ->
+    lager:info("Waiting for server hello for IP ~p", [Ip]),
     ok.
 
 send_loop() ->
     erlang:send_after(1000, self(), send_loop).
 
 send_init_timeout() ->
-    erlang:send_after(2000, self(), init_timeout).
+    erlang:send_after(1000 * 300, self(), init_timeout).

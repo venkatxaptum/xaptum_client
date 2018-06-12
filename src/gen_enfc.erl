@@ -99,8 +99,8 @@ handle_info(connect_to_broker, State) ->
 	    self() ! init_session,
 	    {noreply, State#state{ddsc = C}};
 
-	_ ->
-	    lager:info("Unable to connect to broker. Retrying after 1 second"),
+	_R ->
+	    lager:info("Unable to connect to broker. Reason: ~p. Retrying after 1 second", [_R]),
 	    connect_to_broker_loop(),
 	    {noreply, State}
     end;

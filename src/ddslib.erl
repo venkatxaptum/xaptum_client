@@ -20,16 +20,13 @@
 -module(ddslib).
 
 -export([
-
-	 build_reg_message/2,
-	 build_control_message/2,
-	 build_init_pub_req/1,
-	 build_init_sub_req/2,
+	 build_reg_message/1,
+	 build_control_message/1,
+	 build_init_sub_req/1,
 	 recv/1,
 	 extract_mdxp_payload/1
 ]).
 
--define(TOKEN, <<"abcdefghijklmnopqrstuvwzyz1234567890ABCD">>).
 -define(TYPE, <<0>>).
 -define(TOTAL, 10).
 -define(DELAY, 200).
@@ -79,17 +76,14 @@
 %% DDS Protocol Implementation
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-build_init_pub_req(Guid) ->
-    build_req(Guid, ?AUTH_EMP_REQ, <<>>). 
+build_init_sub_req(Queue) ->
+    build_req(?AUTH_SUB_REQ, Queue).
 
-build_init_sub_req(Guid, Queue) ->
-    build_req(Guid, ?AUTH_SUB_REQ, Queue).
+build_reg_message(Message) ->
+    build_message(?REG_MSG, Message).
 
-build_reg_message(SessionToken, Message) ->
-    build_message(SessionToken, ?REG_MSG, Message).
-
-build_control_message(SessionToken, Message) ->
-    build_message(SessionToken, ?SIGNAL_MSG, Message).
+build_control_message(Message) ->
+    build_message(?SIGNAL_MSG, Message).
 
 recv(Client) ->
     {ok, FixedHeader} = erltls:recv(Client, 4, 2000),
@@ -100,20 +94,18 @@ recv(Client) ->
 %%=============================================================
 %% Private functions
 %%=============================================================
-build_req(Guid, Type, ReqPayload) ->
-    Size = 16 + byte_size(ReqPayload),
+build_req(Type, ReqPayload) ->
+    Size = byte_size(ReqPayload),
     FixedHeader = <<?DDS_MARKER:8, Type:8, Size:16>>,
-    VariableHeader = Guid,
     Payload = ReqPayload,
-    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
+    Packet = <<FixedHeader/binary, Payload/binary>>,
     Packet.
 
-build_message(SessionToken, MsgType, Message) ->
-    Size = 36 + byte_size(Message),
+build_message( MsgType, Message) ->
+    Size = byte_size(Message),
     FixedHeader = <<?DDS_MARKER:8, MsgType:8, Size:16>>,
-    VariableHeader = SessionToken,
     Payload = Message,
-    Packet = <<FixedHeader/binary, VariableHeader/binary, Payload/binary>>,
+    Packet = <<FixedHeader/binary, Payload/binary>>,
     Packet.
 
 extract_mdxp_payload(Mdxp) ->
